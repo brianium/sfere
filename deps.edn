@@ -1,7 +1,9 @@
 {:paths ["src/clj" "resources"]
 
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
-        com.github.ben-manes.caffeine/caffeine {:mvn/version "3.2.2"}}
+        com.github.ben-manes.caffeine/caffeine {:mvn/version "3.2.2"}
+        io.github.brianium/sandestin {:git/tag "v0.3.0" :git/sha "2be6acc"}
+        io.github.brianium/twk {:git/tag "v0.2.0" :git/sha "0c37978"}}
 
  :aliases
  {:dev

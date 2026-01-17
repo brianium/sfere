@@ -4,12 +4,12 @@
 
 | Component | Status |
 |-----------|--------|
-| `registry` function | Not started |
-| `::sfere/with-connection` effect | Not started |
-| `::sfere/broadcast` effect | Not started |
-| Interceptor (auto-store/purge) | Not started |
-| Integration with Twk | Not started |
-| Tests | Not started |
+| `registry` function | Complete |
+| `::sfere/with-connection` effect | Complete |
+| `::sfere/broadcast` effect | Complete |
+| Interceptor (auto-store/purge) | Complete |
+| Integration with Twk | Complete |
+| Tests | Complete |
 
 ## Overview
 
