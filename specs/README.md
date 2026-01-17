@@ -38,9 +38,6 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 1. [Core Connection Store](./001-connection-store.md) - Protocol and implementations (atom, caffeine)
 2. [Sandestin Registry](./002-registry.md) - Effects, interceptors, and integration with Twk
 
-### Dependencies (External)
-1. [Sandestin Dispatch System Override](./003-sandestin-dispatch-system-override.md) - Required for `::with-connection` and `::broadcast` effects. Requires change to Sandestin.
-
 ### Completed
 _None yet_
 
@@ -68,10 +65,6 @@ Sfere depends on (use git coordinates with tag/sha):
 - `ascolais/sandestin` - Effect dispatch
 - `ascolais/twk` - Datastar integration for Sandestin
 - `com.github.benmanes.caffeine/caffeine` - For caffeine store implementation
-
-## Questions to Resolve
-
-- [ ] Sandestin dispatch system override: replace vs merge semantics? (see [003](./003-sandestin-dispatch-system-override.md))
 
 ## Resolved Questions
 

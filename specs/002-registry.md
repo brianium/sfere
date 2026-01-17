@@ -5,15 +5,11 @@
 | Component | Status |
 |-----------|--------|
 | `registry` function | Not started |
-| `::sfere/with-connection` effect | Not started (blocked on Sandestin change) |
-| `::sfere/broadcast` effect | Not started (blocked on Sandestin change) |
+| `::sfere/with-connection` effect | Not started |
+| `::sfere/broadcast` effect | Not started |
 | Interceptor (auto-store/purge) | Not started |
 | Integration with Twk | Not started |
 | Tests | Not started |
-
-## Dependencies
-
-- **[Sandestin Dispatch System Override](./003-sandestin-dispatch-system-override.md)** — The `::with-connection` and `::broadcast` effects require the 3-arity dispatch function to override system.
 
 ## Overview
 
@@ -106,11 +102,10 @@ Dispatch nested effects to a specific stored connection.
 
 **Implementation sketch:**
 ```clojure
-;; Requires: Sandestin dispatch system override (3-arity dispatch)
 (defn with-connection-effect
-  [{:keys [dispatch system]} store [_ key nested-fx]]
+  [{:keys [dispatch]} store [_ key nested-fx]]
   (when-some [conn (p/connection store key)]
-    (dispatch (assoc system :sse conn)       ;; new-system
+    (dispatch {:sse conn}                     ;; system-override (merged)
               {::twk/connection conn}         ;; extra-dispatch-data
               [nested-fx])))
 ```
@@ -141,9 +136,8 @@ Dispatch nested effects to all connections matching a pattern.
 
 **Implementation sketch:**
 ```clojure
-;; Requires: Sandestin dispatch system override (3-arity dispatch)
 (defn broadcast-effect
-  [{:keys [dispatch system]} store [_ {:keys [pattern exclude]} nested-fx]]
+  [{:keys [dispatch]} store [_ {:keys [pattern exclude]} nested-fx]]
   (let [matching     (p/list-keys store pattern)
         excluded     (cond
                        (set? exclude) exclude
@@ -153,7 +147,7 @@ Dispatch nested effects to all connections matching a pattern.
     (doseq [k keys-to-send]
       (try
         (when-some [conn (p/connection store k)]
-          (dispatch (assoc system :sse conn)       ;; new-system
+          (dispatch {:sse conn}                     ;; system-override (merged)
                     {::twk/connection conn}         ;; extra-dispatch-data
                     [nested-fx]))
         (catch Exception e
