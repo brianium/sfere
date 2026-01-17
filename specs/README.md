@@ -42,7 +42,7 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 _None yet_
 
 ### Backlog
-- Demo Application (lobby/room use case)
+- [Demo Application](./004-demo-application.md) - Lobby/room use case showcasing broadcast
 - GitHub CI Workflow
 - Documentation and README
 
