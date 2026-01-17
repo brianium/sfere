@@ -32,14 +32,13 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-**[Core Connection Store](./001-connection-store.md)** — Start here. The registry depends on this.
+**[Sandestin Registry](./002-registry.md)** — Effects, interceptors, and integration with Twk
 
 ### Active
-1. [Core Connection Store](./001-connection-store.md) - Protocol and implementations (atom, caffeine)
-2. [Sandestin Registry](./002-registry.md) - Effects, interceptors, and integration with Twk
+1. [Sandestin Registry](./002-registry.md) - Effects, interceptors, and integration with Twk
 
 ### Completed
-_None yet_
+1. [Core Connection Store](./001-connection-store.md) - Protocol and implementations (atom, caffeine)
 
 ### Backlog
 - [Demo Application](./004-demo-application.md) - Lobby/room use case showcasing broadcast

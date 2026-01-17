@@ -4,12 +4,12 @@
 
 | Component | Status |
 |-----------|--------|
-| `ascolais.sfere.protocols` | Not started |
-| `ascolais.sfere.match` | Not started |
-| `ascolais.sfere.atom` | Not started |
-| `ascolais.sfere.caffeine` | Not started |
-| Public API in `ascolais.sfere` | Not started |
-| Tests | Not started |
+| `ascolais.sfere.protocols` | Complete |
+| `ascolais.sfere.match` | Complete |
+| `ascolais.sfere.atom` | Complete |
+| `ascolais.sfere.caffeine` | Complete |
+| Public API in `ascolais.sfere` | Complete |
+| Tests | Complete |
 
 ## Overview
 
@@ -260,5 +260,5 @@ The main `ascolais.sfere` namespace wraps the protocol for convenience:
 ```clojure
 ;; deps.edn
 {:deps
- {com.github.benmanes.caffeine/caffeine {:mvn/version "3.1.8"}}}
+ {com.github.ben-manes.caffeine/caffeine {:mvn/version "3.2.2"}}}
 ```
