@@ -6,7 +6,9 @@
  {:dev
   {:extra-paths ["dev/src/clj" "dev/resources"]
    :extra-deps {djblue/portal {:mvn/version "0.62.2"}
-                io.github.tonsky/clj-reload {:mvn/version "1.0.0"}}
+                io.github.tonsky/clj-reload {:mvn/version "1.0.0"}
+                ;; Datastar http-kit adapter (includes http-kit)
+                dev.data-star.clojure/http-kit {:mvn/version "1.0.0-RC7"}}
    :jvm-opts ["-Djdk.attach.allowAttachSelf"]}
 
   :test

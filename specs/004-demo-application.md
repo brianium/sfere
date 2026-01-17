@@ -179,11 +179,11 @@ Handled via `:on-purge` in registry options. See **System Setup** section for th
 ```clojure
 ;; deps.edn :dev alias
 {:extra-deps
- {org.httpkit/http-kit {:mvn/version "2.8.0"}
+ {;; Datastar http-kit adapter (includes http-kit)
+  dev.data-star.clojure/http-kit {:mvn/version "1.0.0-RC7"}
   metosin/reitit {:mvn/version "0.7.2"}
   integrant/integrant {:mvn/version "0.13.1"}
-  dev.onionpancakes/chassis {:mvn/version "1.0.467"}
-  io.github.starfederation/datastar.clojure {:git/tag "v1.0.0-beta.11" :git/sha "..."}}}
+  dev.onionpancakes/chassis {:mvn/version "1.0.467"}}}
 ```
 
 ## Notes
