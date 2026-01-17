@@ -15,7 +15,7 @@
                 ;; Demo dependencies
                 metosin/reitit {:mvn/version "0.7.2"}
                 integrant/integrant {:mvn/version "0.13.1"}
-                dev.onionpancakes/chassis {:mvn/version "1.0.467"}}
+                dev.onionpancakes/chassis {:mvn/version "1.0.365"}}
    :jvm-opts ["-Djdk.attach.allowAttachSelf"]}
 
   :test

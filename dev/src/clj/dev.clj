@@ -1,8 +1,10 @@
 (ns dev
-  (:require [clojure.pprint :refer [pprint]]
-            [clj-reload.core :as reload]
+  (:require [clj-reload.core :as reload]
+            [demo.app :as app]
+            [demo.config :refer [config]]
+            [demo.system :as system]
             [portal.api :as p]
-            [ascolais.sfere :as sfere]))
+            [ascolais.sfere]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Portal Setup (reload-safe)
@@ -15,43 +17,22 @@
 ;; System Lifecycle
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(def config
-  "System configuration."
-  {:environment "development"})
-
 (defn start
   "Start the development system."
-  ([]
-   (start config))
-  ([c]
-   (tap> {:event :system/start :config c})
-   :started))
+  []
+  (system/start config))
 
 (defn stop
   "Stop the development system."
   []
-  (tap> {:event :system/stop})
-  :stopped)
-
-(defn suspend
-  "Suspend the system before namespace reload."
-  []
-  (tap> {:event :system/suspend}))
-
-(defn resume
-  "Resume the system after namespace reload."
-  [c]
-  (tap> {:event :system/resume :config c}))
+  (system/stop))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Reloading
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn reload
-  "Reload changed namespaces.
-
-  This is the preferred way to reload during development. Consider binding
-  this to a keyboard shortcut in your editor (e.g., C-c r in Emacs)."
+  "Reload changed namespaces."
   []
   (reload/reload))
 
@@ -62,18 +43,26 @@
   (reload)
   (start))
 
-;; clj-reload hooks
+;; clj-reload hook
 (defn before-ns-unload []
-  (suspend))
-
-(defn after-ns-reload []
-  (resume config))
+  (stop))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Development Utilities
+;; Convenience accessors
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn show-config
-  "Display current configuration."
+(defn store
+  "Get the connection store from the running system."
   []
-  (pprint config))
+  (::app/store system/*system*))
+
+(defn dispatch
+  "Get the dispatch function from the running system."
+  []
+  (::app/dispatch system/*system*))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Start the system
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(start)

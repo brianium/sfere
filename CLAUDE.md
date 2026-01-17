@@ -106,6 +106,26 @@ This ensures dependencies are immediately available without restarting the REPL.
 - Prefer pure functions where possible
 - Use `tap>` for debugging output (appears in Portal)
 
+### Namespaced Keywords
+
+When using namespaced keywords:
+
+- `::foo` expands to `:current.namespace/foo`
+- `::alias/foo` expands to `:aliased.namespace/foo` (requires alias in ns form)
+- `:some.namespace/foo` is a literal fully-qualified keyword
+
+**Invalid syntax:** `::some.namespace/foo` - you cannot use `::` with a full namespace path.
+
+**Correct patterns:**
+```clojure
+(ns my.app
+  (:require [demo.app :as app]))
+
+::app/store        ; => :demo.app/store (using alias)
+:demo.app/store    ; => :demo.app/store (literal)
+::my-local-key     ; => :my.app/my-local-key (current ns)
+```
+
 ## Git Commits
 
 Use conventional commits format:
