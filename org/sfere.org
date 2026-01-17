@@ -1,0 +1,60 @@
+#+title: Musings on Sfere - A Sandestin Replacement For datastar.wow.deacon
+
+* Goal
+
+The goal of sfere is to bring all the functionality of [[/Users/brian/projects/datastar.wow.deacon/][datastar.wow.deacon]] into the [[/Users/brian/projects/sandestin/][Sandestin]] ecosystem, and add a few additional
+discoverability features. This library is designed to work with the [[/Users/brian/projects/twk/][Twk]] library that is also part of the Sandestin ecosystem. It's primary
+job is to store SSE connections created and used in the Twk system for the purpose of things like:
+- Dispatching to other connections (multiplayer/broadcast scenarios)
+- Storing connections for use at the REPL (i.e "out of band dispatch")
+
+* Requirements
+- Export a single Sandestin registry
+- Replicate datastar.wow.deacon functionality
+- Add 2 new effects =:ascolais.sfere/with-connection=, and =:ascolais.sfere/broadcast=
+- Must be well tested
+- Must have a github ci workflow that runs tests
+- Connections must be discoverable. Claude and other LLMs with appropriate tool use should be able to query valuable information about connections from the REPL, minimally what keys are present.
+- Install dependencies using git coordinates requires tag and sha (referenced projects should have up to date shas in their README files)
+
+** =:ascolais.sfere/with-connection=
+
+This effect should be used to dispatch effects to a specific connection. A potential sandestin dispatch might
+look something like this:
+
+#+begin_src clojure
+    (require '[ascolais.sfere :as sfere])
+    
+    (dispatch [::sfere/with-connection [scope-id :my-key]
+               [::twk/patch-signals {:signal "value"}]])
+#+end_src
+
+The idea being that this effect declaratively sets the sse connection for the nested effects
+
+** =:ascolais.sfere/broadcast=
+
+This effect would be used to declaratively broadcast effects to many connections. A potential dispatch might
+look something like this:
+
+#+begin_src clojure
+    (require '[ascolais.sfere :as sfere])
+    
+    (dispatch [::sfere/broadcast props
+               [::twk/patch-signals {:signal "value"}]])
+#+end_src
+
+Open questions to resolve:
+- What are props to broadcast (if anything?)
+- Is there a sensible way to provide a filter functionality? I.e broadcast only to keys matching this pattern?
+
+I think broadcast props should support explicit and wildcard matching on connection store keys. Let's perhaps enforce an explicit key structure to make this easier.
+Keys will follow a vector structure (be sure this is documented) of [:scope-id [:category :id]]. Use the `:*` key as a wildcard for matching.
+
+* demo application
+
+Let's make a new demo that exhibits a lobby/room usecase. Reference datstar.wow.deacon deps.edn for demo dependencies (for example, twk will require an adapter dependency from the official datastar sdk for http-kit)
+
+* Permission to improve
+
+Just because it is in deacon right now, does not mean it is the best or most correct. There shold be freedom to propose changes to the API (while keeping the same basic functionality), propose new functionality that will be useful to humans
+and LLMs (primarily Claude)
