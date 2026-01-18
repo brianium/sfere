@@ -75,7 +75,7 @@
   [username]
   [:div#join-form
    ;; Establish long-lived SSE connection via data-init
-   {:data-init (str "@get('/sse?username=" username "')")}
+   {:data-init "@post('/sse')"}
 
    [:div#participants
     [:h3 "In Lobby:"]
@@ -136,10 +136,10 @@
        [[::twk/patch-elements (lobby-ui username)]]})))
 
 (defn sse-connect
-  "GET /sse - Establish long-lived SSE connection for a user.
+  "POST /sse - Establish long-lived SSE connection for a user.
    This is triggered by data-init in the lobby-ui."
-  [{:keys [query-params]}]
-  (let [username (get query-params "username")]
+  [{:keys [signals]}]
+  (let [username (:username signals)]
     (if (or (nil? username) (empty? username))
       {:status 400 :body "Username required"}
       (let [user-key [::sfere/default-scope [:lobby username]]
@@ -226,7 +226,7 @@
   ["/"
    ["" {:name ::index :get index}]
    ["join" {:name ::join :post join}]
-   ["sse" {:name ::sse :get sse-connect}]
+   ["sse" {:name ::sse :post sse-connect}]
    ["message" {:name ::message :post send-message}]
    ["leave" {:name ::leave :post leave}]])
 

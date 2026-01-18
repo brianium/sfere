@@ -100,27 +100,27 @@ Use `:*` as a wildcard for pattern matching:
 
 ## Long-lived SSE Connections
 
-For persistent connections (chat, live updates), use `data-init` with `@get()`:
+For persistent connections (chat, live updates), use `data-init`:
 
 ```clojure
 ;; HTML (via twk/hiccup or chassis)
-[:div {:data-init "@get('/sse?user=brian')"}]
+[:div {:data-init "@post('/sse')"}]
 
-;; GET /sse handler - establishes persistent connection
-(defn sse-connect [{:keys [query-params]}]
-  (let [username (get query-params "user")]
+;; POST /sse handler - establishes persistent connection
+(defn sse-connect [{:keys [signals]}]
+  (let [username (:username signals)]
     {::sfere/key [:lobby username]
      ::twk/fx [[::twk/patch-elements [:div "Connected!"]]]}))
      ;; No ::twk/with-open-sse? - connection stays open!
 
-;; POST handlers close after dispatch
+;; Other handlers close after dispatch
 (defn send-message [{:keys [signals]}]
   {::twk/with-open-sse? true  ;; Closes after effects dispatch
    ::twk/fx [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
               [::twk/patch-elements [:div (:message signals)]]]]})
 ```
 
-**Important:** `@sse-post()` closes the connection after the response. Use `@get()` via `data-init` for connections that should persist.
+**Important:** The HTTP method (GET, POST, etc.) doesn't affect SSE persistence. Connections stay open unless you set `::twk/with-open-sse? true`, which closes the connection after effects dispatch.
 
 ## Store Options
 
@@ -203,7 +203,7 @@ Simple in-memory store. No expiration.
 
 See [`dev/src/clj/demo/app.clj`](dev/src/clj/demo/app.clj) for a complete lobby chat example demonstrating:
 
-- Long-lived SSE via `data-init` + `@get()`
+- Long-lived SSE via `data-init`
 - Broadcasting messages to all lobby participants
 - Participant join/leave notifications
 - Connection exclusion patterns
