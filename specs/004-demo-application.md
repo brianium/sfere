@@ -4,10 +4,93 @@
 
 | Component | Status |
 |-----------|--------|
-| Dependencies in deps.edn | Not started |
-| Integrant system setup | Not started |
-| Demo app (routes, handlers, views) | Not started |
-| Manual testing | Not started |
+| Dependencies in deps.edn | Complete |
+| Integrant system setup | Complete |
+| Demo app (routes, handlers, views) | Complete |
+| Manual testing | Complete |
+
+## Implementation Summary
+
+The demo is fully functional. Users can join a lobby, see other participants, exchange messages in real-time, and leave cleanly with proper UI updates across all connected clients.
+
+## Key Architectural Discovery: Long-lived SSE via data-init
+
+The original spec assumed `@sse-post()` would work for long-lived SSE connections. This was incorrect.
+
+**The Problem:** When using `@sse-post()` (datastar's SSE POST action), the SSE connection closes immediately after receiving the first event. This is by design - `@sse-post` is intended for request/response patterns, not persistent connections.
+
+**The Solution:** Use `data-init` with `@get()` for long-lived SSE connections:
+
+```clojure
+;; In lobby-ui, after user joins:
+[:div#join-form {:data-init "@get('/sse?username=brian')"}
+ ...]
+```
+
+This establishes a persistent SSE connection that stays open to receive broadcasts.
+
+### Request Architecture
+
+| Endpoint | Method | Purpose | SSE Behavior |
+|----------|--------|---------|--------------|
+| `/join` | POST | Return lobby UI with data-init | `with-open-sse? true` (closes after) |
+| `/sse` | GET | Establish persistent connection | Stays open (stored in sfere) |
+| `/message` | POST | Broadcast message to all | `with-open-sse? true` (closes after) |
+| `/leave` | POST | Broadcast departure, cleanup | `with-open-sse? true` (closes after) |
+
+## Issues Encountered
+
+### 1. SSE Connections Closing Immediately
+
+**Symptom:** Connections stored successfully, broadcasts dispatched with no errors, but only one event appeared in browser before `:client-close`.
+
+**Root Cause:** `@sse-post()` is not designed for long-lived connections. Datastar closes the connection after receiving the response.
+
+**Fix:** Separate the join flow into two requests:
+1. POST `/join` returns HTML containing `data-init="@get('/sse')"`
+2. GET `/sse` establishes the persistent SSE connection
+
+### 2. Duplicate Participant Entries
+
+**Symptom:** User appeared twice in participant list after joining.
+
+**Root Cause:** `lobby-ui` included the user's name, then the broadcast also added them.
+
+**Fix:** Exclude self from the participant list broadcast (self already has their name from `lobby-ui`), but include self in the "joined" message broadcast.
+
+### 3. Join Messages in Wrong Location
+
+**Symptom:** "X joined the lobby" messages appeared in the participant list instead of the messages area.
+
+**Root Cause:** Single broadcast was appending a div containing both `<li>` and message to `#participant-list`.
+
+**Fix:** Split into two separate broadcasts with correct selectors:
+- Participant `<li>` → `#participant-list`
+- Join message → `#messages`
+
+### 4. New Users Don't See Existing Participants
+
+**Symptom:** When Phil joins after Brian, Phil's participant list only shows Phil.
+
+**Root Cause:** No server-side state tracking who's already in the lobby.
+
+**Fix:** Query the sfere store for existing connections when a user connects via `/sse`, and send them the current participant list before broadcasting their join.
+
+### 5. Participant Not Removed on Leave
+
+**Symptom:** User remained in participant list after leaving.
+
+**Root Cause:** The remove broadcast was patching an element but without a selector specifying which element to remove.
+
+**Fix:** Use selector targeting the specific element: `{twk/selector "#participant-brian" twk/patch-mode twk/pm-remove}`
+
+### 6. on-purge Broadcasting Departures
+
+**Symptom:** Users shown as "left" when they hadn't actually left (just SSE reconnection).
+
+**Root Cause:** SSE connections close frequently due to normal browser behavior (tab switching, idle timeout, page visibility changes). Broadcasting "user left" on every close was incorrect.
+
+**Fix:** Only broadcast departures via explicit `/leave` action. The `on-purge` callback just logs for debugging - it doesn't broadcast.
 
 ## Overview
 
@@ -16,9 +99,10 @@ A lobby/room demo that showcases sfere's connection management and broadcast cap
 ## User Flow
 
 1. User loads the page → sees join form
-2. User enters a name and joins → stored connection, broadcast "X joined" to others
-3. User sends a message → broadcast to all in lobby
-4. User leaves (closes tab or clicks leave) → purge connection, broadcast "X left"
+2. User enters a name and clicks "Join" → POST `/join` returns lobby UI with `data-init`
+3. `data-init` triggers GET `/sse` → establishes persistent SSE, stores connection, broadcasts join
+4. User sends a message → POST `/message` broadcasts to all stored connections
+5. User clicks "Leave" → POST `/leave` broadcasts departure, removes from participant lists, closes stored SSE
 
 ## Key Design Decisions
 
@@ -70,27 +154,31 @@ When the form is submitted via `sse-post`, signals are sent to the server and av
     [:body {:data-signals:username ""
             :data-signals:message ""}
 
-     ;; Join form (shown when not connected)
+     ;; Join form - uses regular @post, NOT @sse-post
      [:div#join-form
       [:input {:data-bind:username true :placeholder "Enter your name"}]
-      [:button {:data-on:click (twk/sse-post "/join")} "Join Lobby"]]
+      [:button {:data-on:click "@post('/join')"} "Join Lobby"]]]]])
 
-     ;; Lobby view (hidden initially, shown after joining)
-     [:div#lobby {:style "display:none"}
-      ;; Participant list
-      [:div#participants
-       [:h3 "In Lobby:"]
-       [:ul#participant-list]]
+(defn lobby-ui
+  "Returned by /join, includes data-init for persistent SSE."
+  [username]
+  [:div#join-form
+   ;; data-init establishes long-lived SSE connection
+   {:data-init (str "@get('/sse?username=" username "')")}
 
-      ;; Messages area
-      [:div#messages]
+   [:div#participants
+    [:h3 "In Lobby:"]
+    [:ul#participant-list
+     [:li {:id (str "participant-" username)} username]]]
 
-      ;; Message input
-      [:div
-       [:input {:data-bind:message true :placeholder "Type a message"}]
-       [:button {:data-on:click (twk/sse-post "/message")} "Send"]]
+   [:div#messages
+    [:div.message.system-message (str "Welcome to the lobby, " username "!")]]
 
-      [:button {:data-on:click (twk/sse-post "/leave")} "Leave Lobby"]]]]])
+   [:div
+    [:input {:data-bind:message true :placeholder "Type a message"}]
+    [:button {:data-on:click "@post('/message')"} "Send"]]
+
+   [:button {:data-on:click "@post('/leave')"} "Leave Lobby"]])
 ```
 
 ## Routes & Handlers
@@ -104,67 +192,92 @@ Render the lobby page.
 ```
 
 ### POST /join
-Join the lobby. Store connection with username in key, broadcast join notification.
+Return lobby UI with `data-init` that will establish SSE. Closes after sending.
 
 ```clojure
 (defn join [{:keys [signals]}]
   (let [username (:username signals)]
-    {::sfere/key [:lobby username]  ;; username embedded in key!
+    {::twk/with-open-sse? true  ;; Close after sending HTML
      ::twk/fx
-     [;; Show lobby UI to joiner
-      [::twk/patch-elements (lobby-view username)]
-      ;; Broadcast to others in lobby
-      [::sfere/broadcast {:pattern [:* [:lobby :*]]}
-       [::twk/patch-elements (participant-joined username)]]]}))
+     [[::twk/patch-elements (lobby-ui username)]]}))
+```
+
+### GET /sse
+Establish persistent SSE connection. Stores connection, sends existing participants, broadcasts join.
+
+```clojure
+(defn sse-connect [{:keys [query-params]}]
+  (let [username (get query-params "username")
+        user-key [::sfere/default-scope [:lobby username]]
+        ;; Query store for existing participants
+        store (-> demo.system/*system* ::store)
+        existing-keys (sfere/list-connections store [:* [:lobby :*]])
+        existing-users (->> existing-keys
+                            (map (fn [[_scope [_category uname]]] uname))
+                            (remove #{username}))]
+    {::sfere/key [:lobby username]  ;; Store this connection
+     ::twk/fx
+     (concat
+       ;; Send existing participants to the new user
+       (when (seq existing-users)
+         [[::twk/patch-elements
+           (into [:div] (map participant-item existing-users))
+           {twk/selector "#participant-list" twk/patch-mode twk/pm-append}]])
+       ;; Broadcast to others (exclude self - already has their name)
+       [[::sfere/broadcast {:pattern [:* [:lobby :*]] :exclude #{user-key}}
+         [::twk/patch-elements (participant-item username)
+          {twk/selector "#participant-list" twk/patch-mode twk/pm-append}]]
+        ;; Broadcast join message to all (including self)
+        [::sfere/broadcast {:pattern [:* [:lobby :*]]}
+         [::twk/patch-elements [:div.message.system-message (str username " joined")]
+          {twk/selector "#messages" twk/patch-mode twk/pm-append}]]])}))
 ```
 
 ### POST /message
-Send a message to everyone in the lobby.
+Broadcast message to all. Closes after dispatch.
 
 ```clojure
 (defn send-message [{:keys [signals]}]
   (let [username (:username signals)
-        message  (:message signals)]
-    {::sfere/key [:lobby username]
+        message (:message signals)]
+    {::twk/with-open-sse? true
      ::twk/fx
-     [;; Broadcast message to all (including sender)
-      [::sfere/broadcast {:pattern [:* [:lobby :*]]}
-       [::twk/patch-elements (message-bubble username message)]]
-      ;; Clear sender's input
-      [::twk/patch-signals {:message ""}]]}))
+     [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
+       [::twk/patch-elements (message-bubble username message)
+        {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
+      ;; Clear sender's input via their stored connection
+      [::sfere/with-connection [::sfere/default-scope [:lobby username]]
+       [::twk/patch-signals {:message ""}]]]}))
 ```
 
 ### POST /leave
-Leave the lobby. Broadcast departure, close connection.
+Broadcast departure, remove from participant lists, close stored SSE.
 
 ```clojure
 (defn leave [{:keys [signals]}]
-  (let [username (:username signals)]
-    {::sfere/key [:lobby username]
+  (let [username (:username signals)
+        user-key [::sfere/default-scope [:lobby username]]]
+    {::twk/with-open-sse? true
      ::twk/fx
-     [;; Broadcast departure to others (exclude self)
-      [::sfere/broadcast {:pattern [:* [:lobby :*]]
-                          :exclude #{[::sfere/default-scope [:lobby username]]}}
-       [::twk/patch-elements (participant-left username)]]
-      ;; Close this connection
-      [::twk/close-sse]]}))
+     [[::sfere/broadcast {:pattern [:* [:lobby :*]] :exclude #{user-key}}
+       [::twk/patch-elements (participant-left username)
+        {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
+      [::sfere/broadcast {:pattern [:* [:lobby :*]] :exclude #{user-key}}
+       [::twk/patch-elements ""
+        {twk/selector (str "#participant-" username) twk/patch-mode twk/pm-remove}]]
+      [::sfere/with-connection user-key
+       [::twk/close-sse]]]}))
 ```
 
-### SSE Close Handler (on-purge)
-Automatic cleanup when connection drops (tab close, network loss).
-
-Username is extracted from the key structure:
+### on-purge (logging only)
+SSE connections close frequently due to browser behavior. We only log, not broadcast.
 
 ```clojure
 (defn on-purge
-  "Broadcast departure when connection is purged.
-   Extracts username from the key: [scope [:lobby username]]"
-  [ctx [_scope [_category username]]]
-  (when-some [dispatch @*dispatch]
-    (dispatch {} {}
-      [[::sfere/broadcast {:pattern [:* [:lobby :*]]
-                           :exclude #{[_scope [_category username]]}}
-        [::twk/patch-elements (participant-left username)]]])))
+  "Called when connection is purged. Just logs - no broadcast."
+  [_ctx [_scope [_category username] :as key]]
+  (tap> {:sfere/event :on-purge :key key :username username})
+  nil)
 ```
 
 ## System Setup
@@ -217,11 +330,14 @@ Username is extracted from the key structure:
 
 ## Key Patterns Demonstrated
 
-1. **Username in key** — `::sfere/key [:lobby username]` embeds username for on-purge access
-2. **Broadcast to room** — `::sfere/broadcast` with pattern `[:* [:lobby :*]]`
-3. **Exclude self** — `:exclude` with the full key
-4. **Auto-cleanup with broadcast** — `:on-purge` extracts username from key structure
-5. **Client-side state** — `data-bind` keeps username in signals across requests
+1. **Long-lived SSE via data-init** — Use `@get()` with `data-init` for persistent connections, not `@sse-post()`
+2. **with-open-sse? for request/response** — Set `true` for requests that should close after dispatch
+3. **Username in key** — `::sfere/key [:lobby username]` embeds username for identification
+4. **Broadcast to room** — `::sfere/broadcast` with pattern `[:* [:lobby :*]]`
+5. **Exclude self** — `:exclude #{user-key}` to avoid duplicate updates
+6. **Store as application state** — Query `sfere/list-connections` to find existing users
+7. **Targeted effects** — `::sfere/with-connection` to send to a specific stored connection
+8. **Element removal** — Use selector + `twk/pm-remove` to delete specific elements
 
 ## REPL Discoverability
 
@@ -258,3 +374,7 @@ Note: `dev.data-star.clojure/http-kit` is already in :dev deps.
 **Dispatch capture pattern:** The `on-purge` callback requires capturing the dispatch function in an atom because Sandestin interceptors don't receive dispatch in their context (only effect handlers do). This is a known limitation.
 
 **No sessions needed:** By embedding username in the key and using `data-bind` for client persistence, we avoid server-side session management entirely.
+
+**SSE connection lifecycle:** Browser SSE connections close frequently due to tab switching, idle timeouts, and visibility changes. Don't treat every close as a "user left" event. Only explicit actions (like clicking "Leave") should trigger departure broadcasts.
+
+**data-init vs @sse-post:** Datastar's `@sse-post()` is designed for request/response patterns where the SSE closes after the response. For persistent connections that receive multiple events over time, use `data-init` with `@get()` instead.

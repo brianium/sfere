@@ -5,6 +5,7 @@ classes/
 *.class
 pom.xml
 pom.xml.asc
+debug/
 
 # Clojure tools
 .cpcache/

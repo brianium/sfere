@@ -3,6 +3,7 @@
             [ascolais.sfere :as sfere]
             [ascolais.twk :as twk]
             [demo.server :as demo.server]
+            [demo.system :as demo.system]
             [dev.onionpancakes.chassis.core :as c]
             [integrant.core :as ig]
             [reitit.ring :as rr]
@@ -52,7 +53,7 @@
      [:div#join-form
       [:p "Enter your name to join the lobby:"]
       [:input {:data-bind:username true :placeholder "Your name"}]
-      [:button {:data-on:click (twk/sse-post "/join")} "Join Lobby"]]
+      [:button {:data-on:click "@post('/join')"} "Join Lobby"]]
 
      ;; Lobby view (hidden initially, shown after joining)
      [:div#lobby {:style "display:none"}
@@ -64,19 +65,31 @@
 
       [:div
        [:input {:data-bind:message true :placeholder "Type a message"}]
-       [:button {:data-on:click (twk/sse-post "/message")} "Send"]]
+       [:button {:data-on:click "@post('/message')"} "Send"]]
 
-      [:button {:data-on:click (twk/sse-post "/leave") :style "margin-top: 1rem;"} "Leave Lobby"]]]]])
+      [:button {:data-on:click "@post('/leave')" :style "margin-top: 1rem;"} "Leave Lobby"]]]]])
 
-(defn lobby-view
-  "The lobby UI shown after joining. Replaces #join-form."
+(defn lobby-ui
+  "The full lobby UI shown after joining. Replaces the join-form area.
+   Uses data-init to establish a long-lived SSE connection for receiving broadcasts."
   [username]
-  [:div#join-form {:style "display:none"}])
+  [:div#join-form
+   ;; Establish long-lived SSE connection via data-init
+   {:data-init (str "@get('/sse?username=" username "')")}
 
-(defn lobby-visible
-  "Make the lobby div visible."
-  []
-  [:div#lobby {:style "display:block"}])
+   [:div#participants
+    [:h3 "In Lobby:"]
+    [:ul#participant-list
+     [:li {:id (str "participant-" username)} username]]]
+
+   [:div#messages
+    [:div.message.system-message (str "Welcome to the lobby, " username "!")]]
+
+   [:div
+    [:input {:data-bind:message true :placeholder "Type a message"}]
+    [:button {:data-on:click "@post('/message')"} "Send"]]
+
+   [:button {:data-on:click "@post('/leave')" :style "margin-top: 1rem;"} "Leave Lobby"]])
 
 (defn participant-item
   "A single participant list item."
@@ -111,21 +124,48 @@
   {:body (lobby-page)})
 
 (defn join
-  "POST /join - Join the lobby."
+  "POST /join - Join the lobby.
+   Returns HTML with data-init that establishes SSE connection."
   [{:keys [signals]}]
   (let [username (:username signals)]
     (if (or (nil? username) (empty? username))
       {:status 400 :body "Username required"}
-      {::sfere/key [:lobby username]
+      ;; Return lobby UI which includes data-init for SSE
+      {::twk/with-open-sse? true
        ::twk/fx
-       [;; Hide join form, show lobby
-        [::twk/patch-elements (lobby-view username)]
-        [::twk/patch-elements (lobby-visible)]
-        ;; Add self to participant list
-        [::twk/patch-elements (participant-item username) {twk/selector "#participant-list" twk/patch-mode twk/pm-append}]
-        ;; Broadcast join to others
-        [::sfere/broadcast {:pattern [:* [:lobby :*]]}
-         [::twk/patch-elements (participant-joined username) {twk/selector "#participant-list" twk/patch-mode twk/pm-append}]]]})))
+       [[::twk/patch-elements (lobby-ui username)]]})))
+
+(defn sse-connect
+  "GET /sse - Establish long-lived SSE connection for a user.
+   This is triggered by data-init in the lobby-ui."
+  [{:keys [query-params]}]
+  (let [username (get query-params "username")]
+    (if (or (nil? username) (empty? username))
+      {:status 400 :body "Username required"}
+      (let [user-key [::sfere/default-scope [:lobby username]]
+            ;; Get existing lobby members from store
+            store (-> demo.system/*system* ::store)
+            existing-keys (sfere/list-connections store [:* [:lobby :*]])
+            existing-users (->> existing-keys
+                                (map (fn [[_scope [_category uname]]] uname))
+                                (remove #{username}))]
+        {::sfere/key [:lobby username]
+         ::twk/fx
+         (concat
+           ;; Send existing participants to the new user
+          (when (seq existing-users)
+            [[::twk/patch-elements
+              (into [:div] (map participant-item existing-users))
+              {twk/selector "#participant-list" twk/patch-mode twk/pm-append}]])
+           ;; Add to participant list for others (self already has it from lobby-ui)
+          [[::sfere/broadcast {:pattern [:* [:lobby :*]]
+                               :exclude #{user-key}}
+            [::twk/patch-elements (participant-item username)
+             {twk/selector "#participant-list" twk/patch-mode twk/pm-append}]]
+            ;; Broadcast join message to all (including self)
+           [::sfere/broadcast {:pattern [:* [:lobby :*]]}
+            [::twk/patch-elements [:div.message.system-message (str username " joined the lobby")]
+             {twk/selector "#messages" twk/patch-mode twk/pm-append}]]])}))))
 
 (defn send-message
   "POST /message - Send a message to everyone in lobby."
@@ -134,48 +174,49 @@
         message (:message signals)]
     (if (or (nil? message) (empty? message))
       {:status 400 :body "Message required"}
-      {::sfere/key [:lobby username]
+      {::twk/with-open-sse? true
        ::twk/fx
-       [;; Broadcast message to all (including sender)
-        [::sfere/broadcast {:pattern [:* [:lobby :*]]}
-         [::twk/patch-elements (message-bubble username message) {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
-        ;; Clear sender's input
-        [::twk/patch-signals {:message ""}]]})))
+       [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
+         [::twk/patch-elements (message-bubble username message)
+          {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
+        [::sfere/with-connection [::sfere/default-scope [:lobby username]]
+         [::twk/patch-signals {:message ""}]]]})))
 
 (defn leave
   "POST /leave - Leave the lobby."
   [{:keys [signals]}]
-  (let [username (:username signals)]
-    {::sfere/key [:lobby username]
+  (let [username (:username signals)
+        user-key [::sfere/default-scope [:lobby username]]]
+    {::twk/with-open-sse? true
      ::twk/fx
-     [;; Broadcast departure to others (exclude self)
+     [[::sfere/broadcast {:pattern [:* [:lobby :*]]
+                          :exclude #{user-key}}
+       [::twk/patch-elements (participant-left username)
+        {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
       [::sfere/broadcast {:pattern [:* [:lobby :*]]
-                          :exclude #{[::sfere/default-scope [:lobby username]]}}
-       [::twk/patch-elements (participant-left username) {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
-      ;; Remove from participant list for others
-      [::sfere/broadcast {:pattern [:* [:lobby :*]]
-                          :exclude #{[::sfere/default-scope [:lobby username]]}}
-       [::twk/patch-elements [:li {:id (str "participant-" username)} ""] {twk/patch-mode twk/pm-remove}]]
-      ;; Close this connection
-      [::twk/close-sse]]}))
+                          :exclude #{user-key}}
+       [::twk/patch-elements ""
+        {twk/selector (str "#participant-" username)
+         twk/patch-mode twk/pm-remove}]]
+      [::sfere/with-connection user-key
+       [::twk/close-sse]]]}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; on-purge callback
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn on-purge
-  "Broadcast departure when connection is purged (tab close, network loss).
-   Extracts username from key structure: [scope [:lobby username]]"
+  "Called when connection is purged (SSE closes).
+
+   NOTE: We intentionally do NOT broadcast 'user left' here because SSE connections
+   close frequently due to normal browser behavior (tab switching, idle timeout, etc.).
+   The user hasn't actually left - they're still on the page.
+
+   'User left' notifications only happen via explicit /leave action."
   [_ctx [_scope [_category username] :as key]]
-  (when-some [dispatch @*dispatch]
-    (tap> {:sfere/event :on-purge :key key :username username})
-    (dispatch {} {}
-              [[::sfere/broadcast {:pattern [:* [:lobby :*]]
-                                   :exclude #{key}}
-                [::twk/patch-elements (participant-left username) {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
-               [::sfere/broadcast {:pattern [:* [:lobby :*]]
-                                   :exclude #{key}}
-                [::twk/patch-elements [:li {:id (str "participant-" username)} ""] {twk/patch-mode twk/pm-remove}]]])))
+  (tap> {:sfere/event :on-purge :key key :username username})
+  ;; Just log - don't broadcast departure
+  nil)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Routes
@@ -185,6 +226,7 @@
   ["/"
    ["" {:name ::index :get index}]
    ["join" {:name ::join :post join}]
+   ["sse" {:name ::sse :get sse-connect}]
    ["message" {:name ::message :post send-message}]
    ["leave" {:name ::leave :post leave}]])
 
@@ -202,8 +244,22 @@
     (reset! *dispatch dispatch)
     dispatch))
 
+(defn ->sse-response-with-logging
+  "Wraps http-kit ->sse-response to log close status codes."
+  [request opts]
+  (let [original-on-close (:d*.sse/on-close opts)]
+    (hk/->sse-response
+     request
+     (assoc opts :d*.sse/on-close
+            (fn [sse-gen status]
+              (tap> {:sfere/event :sse-close-status
+                     :status status
+                     :request-uri (:uri request)})
+              (when original-on-close
+                (original-on-close sse-gen status)))))))
+
 (defmethod ig/init-key ::with-datastar [_ {:keys [dispatch]}]
-  (twk/with-datastar hk/->sse-response dispatch))
+  (twk/with-datastar ->sse-response-with-logging dispatch))
 
 (defmethod ig/init-key ::router [_ {:keys [routes middleware]
                                     :or {middleware []}}]
