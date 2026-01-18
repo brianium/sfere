@@ -2,13 +2,19 @@
 
 ## Status
 
+**Complete**
+
 | Component | Status |
 |-----------|--------|
-| Project overview | Not started |
-| Installation | Not started |
-| Quick start | Not started |
-| API reference | Not started |
-| Integration guide | Not started |
+| Project overview | Done |
+| Installation | Done |
+| Quick start | Done |
+| Key concepts | Done |
+| Long-lived SSE | Done |
+| Store options | Done |
+| REPL discoverability | Done |
+| Integration guide | Done |
+| Full example link | Done |
 
 ## Overview
 

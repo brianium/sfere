@@ -56,10 +56,11 @@
       (sfere/store! store key sse)
 
       ;; Create effect handler context
+      ;; Sandestin calls handlers as (handler ctx system & args)
       (let [handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/with-connection ::s/handler])
             ctx {:dispatch (fn [sys-override extra-data fx]
                              (swap! dispatched conj {:sys sys-override :data extra-data :fx fx}))}]
-        (handler ctx [:ascolais.sfere/with-connection key [::test-effect "hello"]])
+        (handler ctx {} key [::test-effect "hello"])
 
         (is (= 1 (count @dispatched)))
         (is (= sse (get-in @dispatched [0 :sys :sse])))
@@ -71,7 +72,7 @@
           key [:user-1 [:room "lobby"]]]
       (let [handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/with-connection ::s/handler])
             ctx {:dispatch (fn [& args] (swap! dispatched conj args))}]
-        (handler ctx [:ascolais.sfere/with-connection key [::test-effect]])
+        (handler ctx {} key [::test-effect])
 
         (is (empty? @dispatched))))))
 
@@ -91,12 +92,11 @@
       (sfere/store! store [:user-2 [:room "lobby"]] sse2)
       (sfere/store! store [:user-3 [:game 42]] sse3)
 
+      ;; Sandestin calls handlers as (handler ctx system & args)
       (let [handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/broadcast ::s/handler])
             ctx {:dispatch (fn [sys-override extra-data fx]
                              (swap! dispatched conj {:sse (:sse sys-override)}))}]
-        (handler ctx [:ascolais.sfere/broadcast
-                      {:pattern [:* [:room "lobby"]]}
-                      [::test-effect]])
+        (handler ctx {} {:pattern [:* [:room "lobby"]]} [::test-effect])
 
         (is (= 2 (count @dispatched)))
         (is (= #{sse1 sse2} (set (map :sse @dispatched)))))))
@@ -112,10 +112,9 @@
       (let [handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/broadcast ::s/handler])
             ctx {:dispatch (fn [sys-override _ _]
                              (swap! dispatched conj {:sse (:sse sys-override)}))}]
-        (handler ctx [:ascolais.sfere/broadcast
-                      {:pattern [:* [:room "lobby"]]
-                       :exclude #{[:user-1 [:room "lobby"]]}}
-                      [::test-effect]])
+        (handler ctx {} {:pattern [:* [:room "lobby"]]
+                         :exclude #{[:user-1 [:room "lobby"]]}}
+                 [::test-effect])
 
         (is (= 1 (count @dispatched)))
         (is (= sse2 (:sse (first @dispatched)))))))
@@ -134,10 +133,9 @@
             ctx {:dispatch (fn [sys-override _ _]
                              (swap! dispatched conj {:sse (:sse sys-override)}))}]
         ;; Broadcast to all rooms, exclude user-1's connections
-        (handler ctx [:ascolais.sfere/broadcast
-                      {:pattern [:* [:room :*]]
-                       :exclude [:user-1 :*]}
-                      [::test-effect]])
+        (handler ctx {} {:pattern [:* [:room :*]]
+                         :exclude [:user-1 :*]}
+                 [::test-effect])
 
         (is (= 1 (count @dispatched)))
         (is (= sse3 (:sse (first @dispatched)))))))
@@ -159,15 +157,14 @@
                                (when (= 1 @call-count)
                                  (throw (ex-info "Test error" {})))
                                (swap! dispatched conj {:sse (:sse sys-override)}))}]
-          (handler ctx [:ascolais.sfere/broadcast
-                        {:pattern [:* [:room "lobby"]]}
-                        [::test-effect]])
+          (handler ctx {} {:pattern [:* [:room "lobby"]]} [::test-effect])
 
           ;; Should have attempted both, one succeeded
           (is (= 1 (count @dispatched)))
-          ;; Should have logged the error
-          (is (= 1 (count @tapped)))
-          (is (= :broadcast-error (:sfere/event (first @tapped)))))))))
+          ;; Should have logged the error (filter for broadcast-error event)
+          (let [errors (filter #(= :broadcast-error (:sfere/event %)) @tapped)]
+            (is (= 1 (count errors)))
+            (is (= :broadcast-error (:sfere/event (first errors))))))))))
 
 ;; =============================================================================
 ;; Interceptor Tests
@@ -236,10 +233,11 @@
       (is (= 1 (sfere/connection-count store)))
 
       ;; Simulate sse-closed dispatch
+      ;; The interceptor checks :actions for [[::twk/sse-closed]]
       (let [before-fn (:before-dispatch interceptor)
             ctx {:system {:sse sse}
-                 :dispatch-data {::twk/response {::sfere/key [:room "lobby"]
-                                                 ::twk/fx-key ::twk/sse-closed}}}]
+                 :actions [[::twk/sse-closed]]
+                 :dispatch-data {::twk/response {::sfere/key [:room "lobby"]}}}]
         (before-fn ctx))
 
       (is (= 0 (sfere/connection-count store)))))
@@ -257,8 +255,8 @@
       ;; Simulate sse-closed dispatch
       (let [before-fn (:before-dispatch interceptor)
             ctx {:system {:sse sse}
-                 :dispatch-data {::twk/response {::sfere/key [:room "lobby"]
-                                                 ::twk/fx-key ::twk/sse-closed}}}]
+                 :actions [[::twk/sse-closed]]
+                 :dispatch-data {::twk/response {::sfere/key [:room "lobby"]}}}]
         (before-fn ctx))
 
       (is (some? @purged))
