@@ -76,24 +76,3 @@
    ```"
   ([store] (reg/registry store))
   ([store opts] (reg/registry store opts)))
-
-(defn wrap-connection-reuse
-  "Ring middleware that enables SSE connection reuse for sfere.
-
-   When a handler returns a response with ::sfere/key, this middleware
-   looks up any existing stored connection and adds it to the response.
-   This allows twk to reuse the existing SSE instead of creating a new one.
-
-   Arguments:
-   - handler: Ring handler
-   - store: Connection store
-   - id-fn: Function to derive scope-id from context (same as registry :id-fn)
-
-   Usage - compose with twk middleware:
-   ```clojure
-   (-> handler
-       (sfere/wrap-connection-reuse store id-fn)
-       (twk/with-datastar ->sse-response dispatch))
-   ```"
-  [handler store id-fn]
-  (reg/wrap-connection-reuse handler store id-fn))

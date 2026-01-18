@@ -199,16 +199,6 @@ Simple in-memory store. No expiration.
 | `:id-fn` | `(fn [ctx] scope-id)` — Derives scope-id from handler context |
 | `:on-purge` | `(fn [ctx key])` — Called when connection is removed from store |
 
-### Connection Reuse Middleware
-
-For scenarios where the same logical connection may reconnect:
-
-```clojure
-(-> handler
-    (sfere/wrap-connection-reuse store id-fn)
-    (twk/with-datastar ->sse-response dispatch))
-```
-
 ## Full Example
 
 See [`dev/src/clj/demo/app.clj`](dev/src/clj/demo/app.clj) for a complete lobby chat example demonstrating:

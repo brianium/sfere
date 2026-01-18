@@ -39,28 +39,6 @@
    wildcard-schema
    [:tuple wildcard-schema wildcard-schema]])
 
-(defn wrap-connection-reuse
-  "Ring middleware that looks up stored connections and adds them to the response.
-   This allows twk to reuse existing SSE connections instead of creating new ones.
-
-   Must be applied AFTER twk/with-datastar in the middleware vector (so it wraps
-   the handler before with-datastar does)."
-  [handler store id-fn]
-  (fn [request]
-    (let [response (handler request)
-          ;; Check if this is a sfere response with a key
-          inner-key (get response connection-key)]
-      (if inner-key
-        ;; Look up existing connection
-        (let [scope-id (id-fn {:request request})
-              full-key [scope-id inner-key]
-              existing (p/connection store full-key)]
-          (if existing
-            ;; Add existing connection to response so twk reuses it
-            (assoc response ::twk/connection existing)
-            response))
-        response))))
-
 (defn- scoped-key
   "Derive the full connection key from context.
    Returns [scope-id inner-key] or nil if no key in response."
