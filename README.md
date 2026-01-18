@@ -14,7 +14,7 @@ Sfere provides connection storage and retrieval for [Sandestin](https://github.c
 
 ```clojure
 ;; deps.edn
-{:deps {io.github.brianium/sfere {:git/tag "v0.1.0" :git/sha "..."}}}
+{:deps {io.github.brianium/sfere {:git/tag "v0.1.0" :git/sha "969f266"}}}
 ```
 
 Sfere depends on:
