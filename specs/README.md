@@ -32,7 +32,7 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-**GitHub CI Workflow** — Set up continuous integration
+(none - all specs complete)
 
 ### Active
 (none)
@@ -44,6 +44,7 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 4. [README Documentation](./006-readme.md) - Usage guide drawing from demo patterns
 5. [Remove tap> from Public APIs](./007-remove-tap-calls.md) - Remove tap> from registry, fix tests
 6. [Caffeine Store Audit](./005-caffeine-audit.md) - Added `:expiry-mode` option (:sliding/:fixed)
+7. GitHub CI Workflow - Test matrix for Java 17/21 on push and PR
 
 ### Backlog
 (none)
