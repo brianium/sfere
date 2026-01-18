@@ -50,7 +50,19 @@ resources/        # Resource files
 
 ## REPL Evaluation
 
-Use the clojure-eval skill to evaluate code via nREPL:
+Use the clojure-eval skill to evaluate code via nREPL.
+
+### Starting an nREPL Server
+
+To start a REPL with nREPL support (required for clojure-eval):
+
+```bash
+clj -Sdeps '{:deps {nrepl/nrepl {:mvn/version "1.3.0"}}}' -M:dev -m nrepl.cmdline --port 7888
+```
+
+This starts an nREPL server on port 7888 with all dev dependencies loaded.
+
+### Connecting and Evaluating
 
 ```bash
 clj-nrepl-eval --discover-ports          # Find running REPLs

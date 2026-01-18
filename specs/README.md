@@ -61,9 +61,9 @@ Use `:*` as a wildcard for broadcast matching:
 ## Dependencies
 
 Sfere depends on (use git coordinates with tag/sha):
-- `ascolais/sandestin` - Effect dispatch
-- `ascolais/twk` - Datastar integration for Sandestin
-- `com.github.benmanes.caffeine/caffeine` - For caffeine store implementation
+- `io.github.brianium/sandestin` v0.4.0 - Effect dispatch
+- `io.github.brianium/twk` v0.2.1 - Datastar integration for Sandestin
+- `com.github.ben-manes.caffeine/caffeine` - For caffeine store implementation
 
 ## Resolved Questions
 
