@@ -1,12 +1,12 @@
 # Caffeine Store Audit
 
-## Status
+## Status: Complete
 
 | Component | Status |
 |-----------|--------|
-| Compare implementations | Not started |
-| Determine if differences matter | Not started |
-| Fix or document differences | Not started |
+| Compare implementations | Complete |
+| Determine if differences matter | Complete |
+| Implement :expiry-mode option | Complete |
 
 ## Overview
 
@@ -91,15 +91,78 @@ Audit the sfere caffeine store implementation against the original datastar.wow.
 
 ## Audit Tasks
 
-- [ ] Review deacon git history for context on fixed-expiry decision
-- [ ] Test both implementations with scheduler enabled
-- [ ] Determine if fixed expiry is needed for sfere use cases
-- [ ] Either align implementations or document the intentional difference
+- [x] Review deacon git history for context on fixed-expiry decision
+- [x] Test both implementations with scheduler enabled
+- [x] Determine if fixed expiry is needed for sfere use cases
+- [x] Either align implementations or document the intentional difference
 
-## Recommendation (Preliminary)
+## Findings
 
-The sfere implementation appears simpler and potentially more appropriate for SSE connections:
-- Active connections should stay alive (sliding window is correct)
-- Fixed expiry from creation seems suited for session tokens, not SSE
+### Git History Analysis
 
-However, this should be verified before concluding the audit.
+The fixed-expiry feature was added to deacon in commit `2635d58` ("feat: caffeine supports fixed expiry"). The implementation **couples scheduler use with fixed expiry semantics**:
+
+- Without scheduler: sliding window (`expireAfterAccess`)
+- With scheduler: fixed expiry from creation time
+
+There's no documentation explaining *why* these were coupled, but the effect is:
+- When using a scheduler for more precise cleanup timing, you also get different expiry semantics
+- This may have been intentional for session token use cases in deacon
+
+### SSE Connection Behavior
+
+For SSE connections (sfere's primary use case):
+
+| Expiry Type | Behavior | SSE Implications |
+|-------------|----------|------------------|
+| Sliding window | Timer resets on access | Active connections stay alive indefinitely |
+| Fixed | Expires at creation + duration | Connection dies even if active |
+
+SSE connections typically:
+- Have heartbeat/keepalive activity
+- Should stay alive while active
+- Are explicitly purged on close
+
+**Sliding window is more appropriate** because:
+1. Active connections should not be force-expired
+2. Connection lifecycle is already managed (store on open, purge on close)
+3. Only truly abandoned connections (no activity) should be cleaned up
+
+### Why deacon Wraps Entries
+
+Deacon stores `{:conn conn :created-at timestamp}` to support its fixed-expiry calculation. The `expireAfterUpdate` callback needs the original creation time to compute remaining TTL.
+
+Sfere doesn't need this wrapper because sliding window expiry doesn't require tracking creation time.
+
+## Decision
+
+After review, we need **both** expiry modes:
+- **Sliding window**: Active connections stay alive (good for long-lived SSE)
+- **Fixed expiry**: Connection expires at exactly `creation + duration-ms` (good for guaranteed cleanup)
+
+### Implementation: `:expiry-mode` Option
+
+Add a new `:expiry-mode` option to `sfere.caffeine/store`:
+
+| Value | Behavior | Use Case |
+|-------|----------|----------|
+| `:sliding` (default) | Timer resets on access | Long-lived SSE connections |
+| `:fixed` | Expires at creation + duration | Guaranteed resource cleanup |
+
+**Key difference from deacon**: We decouple expiry mode from scheduler. In deacon, using a scheduler implicitly enables fixed expiry. In sfere, these are independent options.
+
+```clojure
+;; Sliding window (default) - connection stays alive while accessed
+(sfere/store {:type :caffeine :duration-ms 60000})
+
+;; Fixed expiry - connection dies after exactly 60s regardless of access
+;; Note: scheduler defaults to true when :expiry-mode is :fixed
+(sfere/store {:type :caffeine :duration-ms 60000 :expiry-mode :fixed})
+```
+
+### Implementation Notes
+
+Fixed expiry requires:
+1. Wrap stored values as `{:conn conn :created-at (Instant/now)}`
+2. Custom `Expiry` implementation that calculates remaining time from creation
+3. Unwrap when retrieving via `connection`

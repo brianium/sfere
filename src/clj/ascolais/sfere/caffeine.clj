@@ -1,16 +1,23 @@
 (ns ascolais.sfere.caffeine
   (:require [ascolais.sfere.protocols :as p]
             [ascolais.sfere.match :refer [match-key?]])
-  (:import (com.github.benmanes.caffeine.cache Caffeine Cache Scheduler)
-           (java.time Duration)))
+  (:import (com.github.benmanes.caffeine.cache Caffeine Cache Expiry Scheduler)
+           (java.time Duration Instant)))
 
-(defrecord CaffeineConnectionStore [^Cache cache]
+(defrecord CaffeineConnectionStore [^Cache cache expiry-mode]
   p/ConnectionStore
   (store! [_ key conn]
-    (.put cache key conn)
+    (if (= expiry-mode :fixed)
+      (let [existing (.getIfPresent cache key)
+            created-at (:created-at existing (Instant/now))
+            entry {:conn conn :created-at created-at}]
+        (.put cache key entry))
+      (.put cache key conn))
     nil)
   (connection [_ key]
-    (.getIfPresent cache key))
+    (if (= expiry-mode :fixed)
+      (some-> (.getIfPresent cache key) :conn)
+      (.getIfPresent cache key)))
   (purge! [_ key]
     (.invalidate cache key)
     nil)
@@ -19,27 +26,48 @@
   (list-keys [_ pattern]
     (filter #(match-key? pattern %) (keys (.asMap cache)))))
 
+(defn- fixed-expiry
+  "Create an Expiry that expires entries at a fixed time from creation."
+  [duration-ms]
+  (let [duration-ns (.toNanos (Duration/ofMillis duration-ms))]
+    (reify Expiry
+      (expireAfterCreate [_ _ _ _]
+        duration-ns)
+      (expireAfterUpdate [_ _ new-value _ _]
+        (let [created-at (:created-at new-value)
+              elapsed-ns (.toNanos (Duration/between created-at (Instant/now)))
+              remaining-ns (max 0 (- duration-ns elapsed-ns))]
+          remaining-ns))
+      (expireAfterRead [_ _ _ _ current-duration]
+        current-duration))))
+
 (defn store
   "Create a Caffeine-backed connection store.
 
    Options:
    | Key            | Description                                      | Default    |
    |----------------|--------------------------------------------------|------------|
-   | :duration-ms   | Idle time before auto-purge                      | 600000 (10min) |
+   | :duration-ms   | Time before auto-purge                           | 600000 (10min) |
    | :maximum-size  | Max connections in store                         | 10000      |
-   | :scheduler     | true for system scheduler, or Scheduler instance | nil        |
+   | :expiry-mode   | :sliding (reset on access) or :fixed (from creation) | :sliding |
+   | :scheduler     | true for system scheduler, or Scheduler instance | true if :fixed |
    | :cache         | Existing Cache instance (overrides other opts)   | nil        |"
-  [{:keys [duration-ms maximum-size scheduler cache]
+  [{:keys [duration-ms maximum-size expiry-mode scheduler cache]
     :or {duration-ms 600000
-         maximum-size 10000}}]
+         maximum-size 10000
+         expiry-mode :sliding}}]
   (if cache
-    (->CaffeineConnectionStore cache)
-    (let [builder (doto (Caffeine/newBuilder)
-                    (.maximumSize (long maximum-size))
-                    (.expireAfterAccess (Duration/ofMillis duration-ms)))
+    (->CaffeineConnectionStore cache expiry-mode)
+    (let [fixed? (= expiry-mode :fixed)
+          scheduler (if (and fixed? (nil? scheduler)) true scheduler)
+          builder (doto (Caffeine/newBuilder)
+                    (.maximumSize (long maximum-size)))
+          builder (if fixed?
+                    (.expireAfter builder (fixed-expiry duration-ms))
+                    (.expireAfterAccess builder (Duration/ofMillis duration-ms)))
           builder (if (true? scheduler)
                     (.scheduler builder (Scheduler/systemScheduler))
                     (if (instance? Scheduler scheduler)
                       (.scheduler builder scheduler)
                       builder))]
-      (->CaffeineConnectionStore (.build builder)))))
+      (->CaffeineConnectionStore (.build builder) expiry-mode))))

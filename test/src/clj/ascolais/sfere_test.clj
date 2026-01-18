@@ -148,14 +148,32 @@
 ;; =============================================================================
 
 (deftest caffeine-store-expiration
-  (testing "caffeine store expires connections after duration"
-    (let [s (caff-store/store {:duration-ms 50 :scheduler true})
+  (testing "sliding expiry (default) - access resets timer"
+    (let [s (caff-store/store {:duration-ms 80 :scheduler true})
           key [:user-1 [:room "lobby"]]
           conn {:id 1}]
       (sfere/store! s key conn)
-      (is (= conn (sfere/connection s key)) "connection present immediately")
+      ;; Access before expiry, timer resets
+      (Thread/sleep 50)
+      (is (= conn (sfere/connection s key)) "connection present after partial wait")
+      ;; Access again before expiry
+      (Thread/sleep 50)
+      (is (= conn (sfere/connection s key)) "connection still present - timer was reset")
+      ;; Now wait past expiry with no access
       (Thread/sleep 100)
-      (is (nil? (sfere/connection s key)) "connection expired after duration"))))
+      (is (nil? (sfere/connection s key)) "connection expired after idle")))
+
+  (testing "fixed expiry - access does NOT reset timer"
+    (let [s (caff-store/store {:duration-ms 80 :expiry-mode :fixed})
+          key [:user-1 [:room "lobby"]]
+          conn {:id 1}]
+      (sfere/store! s key conn)
+      ;; Access before expiry - but timer should NOT reset
+      (Thread/sleep 50)
+      (is (= conn (sfere/connection s key)) "connection present after partial wait")
+      ;; Wait past original expiry time (50 + 50 = 100ms > 80ms)
+      (Thread/sleep 50)
+      (is (nil? (sfere/connection s key)) "connection expired at fixed time despite access"))))
 
 ;; =============================================================================
 ;; Concurrency Tests
