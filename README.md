@@ -136,14 +136,30 @@ Simple in-memory store. No expiration.
 
 ```clojure
 (sfere/store {:type :caffeine
-              :duration-ms 600000    ;; 10 min idle timeout
+              :duration-ms 600000    ;; 10 min timeout
               :maximum-size 10000})  ;; Max connections
 ```
 
-| Option | Description |
-|--------|-------------|
-| `:duration-ms` | Idle timeout in milliseconds before connection is evicted |
-| `:maximum-size` | Maximum number of stored connections |
+| Option | Description | Default |
+|--------|-------------|---------|
+| `:duration-ms` | Time before connection is evicted | 600000 (10 min) |
+| `:maximum-size` | Maximum number of stored connections | 10000 |
+| `:expiry-mode` | `:sliding` (reset on access) or `:fixed` (from creation) | `:sliding` |
+| `:scheduler` | `true` for system scheduler, or `Scheduler` instance | `true` if `:fixed` |
+
+#### Expiry Modes
+
+**Sliding (default):** Timer resets on each access. Connections stay alive while active.
+
+```clojure
+(sfere/store {:type :caffeine :duration-ms 60000})
+```
+
+**Fixed:** Connection expires at exactly `creation + duration-ms` regardless of access. Useful for guaranteed resource cleanup.
+
+```clojure
+(sfere/store {:type :caffeine :duration-ms 60000 :expiry-mode :fixed})
+```
 
 ## REPL Discoverability
 
