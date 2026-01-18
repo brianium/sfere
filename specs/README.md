@@ -32,7 +32,10 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-**Backlog items** — CI, documentation, README
+**[README Documentation](./006-readme.md)** — Comprehensive usage guide with Sandestin/Twk integration
+
+### Active
+1. [README Documentation](./006-readme.md) - Usage guide drawing from demo patterns
 
 ### Completed
 1. [Core Connection Store](./001-connection-store.md) - Protocol and implementations (atom, caffeine)
@@ -40,8 +43,8 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 3. [Demo Application](./004-demo-application.md) - Lobby/room use case showcasing broadcast
 
 ### Backlog
-- GitHub CI Workflow
-- Documentation and README
+1. [Caffeine Store Audit](./005-caffeine-audit.md) - Verify correctness vs datastar.wow.deacon implementation
+2. GitHub CI Workflow
 
 ## Key Design Decisions
 
