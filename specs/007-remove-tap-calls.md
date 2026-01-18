@@ -2,11 +2,13 @@
 
 ## Status
 
+**Complete**
+
 | Component | Status |
 |-----------|--------|
-| Remove taps from registry.clj | Not started |
-| Fix tests that rely on tap> | Not started |
-| Verify demo still works | Not started |
+| Remove taps from registry.clj | Done |
+| Fix tests that rely on tap> | Done |
+| Verify demo still works | N/A (demo keeps its tap> calls) |
 
 ## Overview
 

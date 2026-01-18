@@ -131,7 +131,7 @@ Dispatch nested effects to all connections matching a pattern.
 1. Find all keys matching pattern
 2. Apply `:exclude` filter if provided
 3. For each matching key, look up connection and dispatch nested effects
-4. If a dispatch fails, log via `tap>` and continue with remaining connections
+4. If a dispatch fails, catch exception and continue with remaining connections
 5. No connection validation before dispatch — let failures occur naturally
 
 **Implementation sketch:**
@@ -150,8 +150,9 @@ Dispatch nested effects to all connections matching a pattern.
           (dispatch {:sse conn}                     ;; system-override (merged)
                     {::twk/connection conn}         ;; extra-dispatch-data
                     [nested-fx]))
-        (catch Exception e
-          (tap> {:sfere/event :broadcast-error :key k :error e}))))))
+        (catch Exception _
+          ;; Continue with remaining connections
+          nil)))))
 ```
 
 **Props map keys:**
@@ -261,6 +262,6 @@ These functions are available for REPL usage and LLM discoverability:
 | Question | Decision |
 |----------|----------|
 | Missing connection in `::with-connection` | Silent no-op |
-| Broadcast failure handling | Continue with remaining, log failures via `tap>` |
+| Broadcast failure handling | Continue with remaining connections (silent) |
 | `:exclude` syntax | Both patterns and explicit key sets |
 | Connection validation | Let it fail naturally, no pre-validation |

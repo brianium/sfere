@@ -143,28 +143,22 @@
   (testing "broadcast continues on error"
     (let [store (sfere/store {:type :atom})
           dispatched (atom [])
-          tapped (atom [])
           sse1 (mock-sse "conn-1")
           sse2 (mock-sse "conn-2")]
       (sfere/store! store [:user-1 [:room "lobby"]] sse1)
       (sfere/store! store [:user-2 [:room "lobby"]] sse2)
 
-      (with-redefs [tap> (fn [x] (swap! tapped conj x))]
-        (let [call-count (atom 0)
-              handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/broadcast ::s/handler])
-              ctx {:dispatch (fn [sys-override _ _]
-                               (swap! call-count inc)
-                               (when (= 1 @call-count)
-                                 (throw (ex-info "Test error" {})))
-                               (swap! dispatched conj {:sse (:sse sys-override)}))}]
-          (handler ctx {} {:pattern [:* [:room "lobby"]]} [::test-effect])
+      (let [call-count (atom 0)
+            handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/broadcast ::s/handler])
+            ctx {:dispatch (fn [sys-override _ _]
+                             (swap! call-count inc)
+                             (when (= 1 @call-count)
+                               (throw (ex-info "Test error" {})))
+                             (swap! dispatched conj {:sse (:sse sys-override)}))}]
+        (handler ctx {} {:pattern [:* [:room "lobby"]]} [::test-effect])
 
-          ;; Should have attempted both, one succeeded
-          (is (= 1 (count @dispatched)))
-          ;; Should have logged the error (filter for broadcast-error event)
-          (let [errors (filter #(= :broadcast-error (:sfere/event %)) @tapped)]
-            (is (= 1 (count errors)))
-            (is (= :broadcast-error (:sfere/event (first errors))))))))))
+        ;; Should have attempted both, one succeeded (error was caught and ignored)
+        (is (= 1 (count @dispatched)))))))
 
 ;; =============================================================================
 ;; Interceptor Tests

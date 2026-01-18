@@ -32,20 +32,20 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-**[Remove tap> from Public APIs](./007-remove-tap-calls.md)** — Clean up debugging calls from library code
+**[Caffeine Store Audit](./005-caffeine-audit.md)** — Verify correctness vs datastar.wow.deacon implementation
 
 ### Active
-1. [Remove tap> from Public APIs](./007-remove-tap-calls.md) - Remove tap> from registry, fix tests
+1. [Caffeine Store Audit](./005-caffeine-audit.md) - Verify correctness vs datastar.wow.deacon implementation
 
 ### Completed
 1. [Core Connection Store](./001-connection-store.md) - Protocol and implementations (atom, caffeine)
 2. [Sandestin Registry](./002-registry.md) - Effects, interceptors, and integration with Twk
 3. [Demo Application](./004-demo-application.md) - Lobby/room use case showcasing broadcast
 4. [README Documentation](./006-readme.md) - Usage guide drawing from demo patterns
+5. [Remove tap> from Public APIs](./007-remove-tap-calls.md) - Remove tap> from registry, fix tests
 
 ### Backlog
-1. [Caffeine Store Audit](./005-caffeine-audit.md) - Verify correctness vs datastar.wow.deacon implementation
-2. GitHub CI Workflow
+1. GitHub CI Workflow
 
 ## Key Design Decisions
 

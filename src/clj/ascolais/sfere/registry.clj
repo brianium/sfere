@@ -55,9 +55,6 @@
         (let [scope-id (id-fn {:request request})
               full-key [scope-id inner-key]
               existing (p/connection store full-key)]
-          (tap> {:sfere/event :wrap-connection-reuse
-                 :key full-key
-                 :found? (some? existing)})
           (if existing
             ;; Add existing connection to response so twk reuses it
             (assoc response ::twk/connection existing)
@@ -86,29 +83,21 @@
    Dispatches nested effects to all connections matching pattern."
   [store]
   (fn [{:keys [dispatch]} _system {:keys [pattern exclude]} nested-fx]
-    (let [all-keys     (p/list-keys store [:* :*])
-          matching     (p/list-keys store pattern)
+    (let [matching     (p/list-keys store pattern)
           excluded     (cond
                          (set? exclude) exclude
                          (vector? exclude) (set (p/list-keys store exclude))
                          :else #{})
           keys-to-send (remove excluded matching)]
-      (tap> {:sfere/event :broadcast
-             :pattern pattern
-             :all-stored-keys (vec all-keys)
-             :matching matching
-             :excluded excluded
-             :keys-to-send (vec keys-to-send)})
       (doseq [k keys-to-send]
         (try
           (when-some [conn (p/connection store k)]
-            (tap> {:sfere/event :broadcast-send :key k :conn-type (type conn) :nested-fx nested-fx})
-            (let [result (dispatch {:sse conn}
-                                   {::twk/connection conn}
-                                   [nested-fx])]
-              (tap> {:sfere/event :broadcast-dispatch-result :key k :errors (:errors result)})))
-          (catch Exception e
-            (tap> {:sfere/event :broadcast-error :key k :error e})))))))
+            (dispatch {:sse conn}
+                      {::twk/connection conn}
+                      [nested-fx]))
+          (catch Exception _
+            ;; Continue broadcasting to remaining connections on error
+            nil))))))
 
 (defn- store-connection!
   "Store connection if conditions are met:
@@ -120,20 +109,9 @@
   (when-some [full-key (scoped-key ctx id-fn)]
     (let [sse (get-in ctx [:system :sse])
           existing-conn (get-in ctx [:dispatch-data ::twk/connection])
-          with-open? (get-in ctx [:dispatch-data ::twk/with-open-sse?])
-          request-uri (get-in ctx [:system :request :uri])
-          actions (:actions ctx)]
-      (tap> {:sfere/event :store-check
-             :key full-key
-             :has-sse? (some? sse)
-             :existing-conn? (some? existing-conn)
-             :with-open? with-open?
-             :will-store? (and sse (not existing-conn) (not with-open?))
-             :request-uri request-uri
-             :actions-count (count actions)})
+          with-open? (get-in ctx [:dispatch-data ::twk/with-open-sse?])]
       (when (and sse (not existing-conn) (not with-open?))
-        (p/store! store full-key sse)
-        (tap> {:sfere/event :stored! :key full-key})))))
+        (p/store! store full-key sse)))))
 
 (defn- purge-connection!
   "Purge connection and call on-purge callback if provided."
@@ -152,9 +130,7 @@
   [store id-fn ctx]
   (if-some [full-key (scoped-key ctx id-fn)]
     (if-some [existing (p/connection store full-key)]
-      (do
-        (tap> {:sfere/event :inject-connection :key full-key})
-        (assoc-in ctx [:dispatch-data ::twk/connection] existing))
+      (assoc-in ctx [:dispatch-data ::twk/connection] existing)
       ctx)
     ctx))
 
@@ -174,9 +150,7 @@
      (cond
        ;; On SSE close, purge the connection
        (sse-close-dispatch? ctx)
-       (do (tap> {:sfere/event :sse-close-detected
-                  :key (scoped-key ctx id-fn)})
-           (purge-connection! store id-fn on-purge ctx)
+       (do (purge-connection! store id-fn on-purge ctx)
            ctx)
 
        ;; Otherwise, inject existing connection and/or store new one
