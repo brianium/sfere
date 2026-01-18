@@ -8,6 +8,37 @@
 (def broadcast-key :ascolais.sfere/broadcast)
 (def connection-key :ascolais.sfere/key)
 
+;; -----------------------------------------------------------------------------
+;; Schemas for discoverability
+;; -----------------------------------------------------------------------------
+
+(def ^:private scope-id-schema
+  "Schema for scope identifier (e.g., :ascolais.sfere/default-scope or user-id)"
+  [:or :keyword :string :uuid :int])
+
+(def ^:private inner-key-schema
+  "Schema for inner connection key (e.g., [:lobby \"brian\"])"
+  [:tuple :keyword [:or :string :keyword :int :uuid]])
+
+(def ^:private connection-key-schema
+  "Schema for full connection key [scope-id inner-key]
+   Example: [:ascolais.sfere/default-scope [:lobby \"brian\"]]"
+  [:tuple scope-id-schema inner-key-schema])
+
+(def ^:private wildcard-schema
+  "Schema for wildcard or specific value in patterns"
+  [:or [:= :*] :keyword :string :int :uuid])
+
+(def ^:private pattern-schema
+  "Schema for broadcast patterns. Supports wildcards at any level.
+   Examples:
+     [:* [:lobby :*]]        - all users in any lobby
+     [:* [:lobby \"general\"]] - all users in 'general' lobby
+     [:user-123 [:lobby :*]] - specific user's lobby connections"
+  [:tuple
+   wildcard-schema
+   [:tuple wildcard-schema wildcard-schema]])
+
 (defn wrap-connection-reuse
   "Ring middleware that looks up stored connections and adds them to the response.
    This allows twk to reuse existing SSE connections instead of creating new ones.
@@ -177,23 +208,46 @@
            :or {id-fn (constantly :ascolais.sfere/default-scope)}}]
    {::s/effects
     {with-connection-key
-     {::s/description "Dispatch nested effects to a specific stored connection"
+     {::s/description "Dispatch nested effects to a specific stored connection.
+
+   Arguments:
+     key       - Full connection key [scope-id [:category identifier]]
+     nested-fx - Effect vector to dispatch to the connection
+
+   Example:
+     [::sfere/with-connection [:ascolais.sfere/default-scope [:lobby \"brian\"]]
+      [::twk/patch-signals {:message \"\"}]]"
       ::s/schema [:tuple
                   [:= with-connection-key]
-                  [:tuple :any [:tuple :any :any]]
-                  :any]
+                  connection-key-schema
+                  s/EffectVector]
       ::s/handler (with-connection-effect store)}
 
      broadcast-key
-     {::s/description "Dispatch nested effects to all connections matching pattern"
+     {::s/description "Dispatch nested effects to all connections matching a pattern.
+
+   Arguments:
+     opts      - Map with :pattern (required) and :exclude (optional)
+     nested-fx - Effect vector to dispatch to each matching connection
+
+   Pattern examples:
+     [:* [:lobby :*]]          - all lobby connections
+     [:* [:lobby \"general\"]]   - all connections in 'general' lobby
+     [:user-123 [:lobby :*]]   - specific user's lobby connections
+
+   Example:
+     [::sfere/broadcast {:pattern [:* [:lobby :*]]
+                         :exclude #{specific-key}}
+      [::twk/patch-elements [:div \"Hello\"]]]"
       ::s/schema [:tuple
                   [:= broadcast-key]
                   [:map
-                   [:pattern [:tuple
-                              [:or [:= :*] :any]
-                              [:or [:= :*] [:tuple [:or [:= :*] :any] [:or [:= :*] :any]]]]]
-                   [:exclude {:optional true} :any]]
-                  :any]
+                   [:pattern pattern-schema]
+                   [:exclude {:optional true}
+                    [:or
+                     [:set connection-key-schema]
+                     pattern-schema]]]
+                  s/EffectVector]
       ::s/handler (broadcast-effect store)}}
 
     ::s/interceptors
