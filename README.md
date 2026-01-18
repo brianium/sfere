@@ -229,7 +229,6 @@ clj -M:dev
 
 ```clojure
 (dev)
-(start)
 (reload)  ;; After changes
 ```
 
