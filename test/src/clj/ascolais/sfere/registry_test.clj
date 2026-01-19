@@ -74,6 +74,41 @@
             ctx {:dispatch (fn [& args] (swap! dispatched conj args))}]
         (handler ctx {} key [::test-effect])
 
+        (is (empty? @dispatched)))))
+
+  (testing "with-connection dispatches multiple effects (variadic)"
+    (let [store (sfere/store {:type :atom})
+          dispatched (atom [])
+          sse (mock-sse "conn-1")
+          key [:user-1 [:room "lobby"]]]
+      (sfere/store! store key sse)
+
+      (let [handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/with-connection ::s/handler])
+            ctx {:dispatch (fn [sys-override extra-data fx]
+                             (swap! dispatched conj {:sys sys-override :data extra-data :fx fx}))}]
+        (handler ctx {} key
+                 [::test-effect-1 "a"]
+                 [::test-effect-2 "b"]
+                 [::test-effect-3 "c"])
+
+        (is (= 1 (count @dispatched)))
+        (is (= [[::test-effect-1 "a"]
+                [::test-effect-2 "b"]
+                [::test-effect-3 "c"]]
+               (:fx (first @dispatched))))
+        (is (= sse (get-in @dispatched [0 :sys :sse]))))))
+
+  (testing "with-connection is no-op when no effects provided"
+    (let [store (sfere/store {:type :atom})
+          dispatched (atom [])
+          sse (mock-sse "conn-1")
+          key [:user-1 [:room "lobby"]]]
+      (sfere/store! store key sse)
+
+      (let [handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/with-connection ::s/handler])
+            ctx {:dispatch (fn [& args] (swap! dispatched conj args))}]
+        (handler ctx {} key)
+
         (is (empty? @dispatched))))))
 
 ;; =============================================================================
@@ -158,7 +193,41 @@
         (handler ctx {} {:pattern [:* [:room "lobby"]]} [::test-effect])
 
         ;; Should have attempted both, one succeeded (error was caught and ignored)
-        (is (= 1 (count @dispatched)))))))
+        (is (= 1 (count @dispatched))))))
+
+  (testing "broadcast dispatches multiple effects to each connection (variadic)"
+    (let [store (sfere/store {:type :atom})
+          dispatched (atom [])
+          sse1 (mock-sse "conn-1")
+          sse2 (mock-sse "conn-2")]
+      (sfere/store! store [:user-1 [:room "lobby"]] sse1)
+      (sfere/store! store [:user-2 [:room "lobby"]] sse2)
+
+      (let [handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/broadcast ::s/handler])
+            ctx {:dispatch (fn [sys-override extra-data fx]
+                             (swap! dispatched conj {:sse (:sse sys-override) :fx fx}))}]
+        (handler ctx {} {:pattern [:* [:room "lobby"]]}
+                 [::test-effect-1 "a"]
+                 [::test-effect-2 "b"])
+
+        (is (= 2 (count @dispatched)))
+        (is (= #{sse1 sse2} (set (map :sse @dispatched))))
+        (doseq [d @dispatched]
+          (is (= [[::test-effect-1 "a"]
+                  [::test-effect-2 "b"]]
+                 (:fx d)))))))
+
+  (testing "broadcast is no-op when no effects provided"
+    (let [store (sfere/store {:type :atom})
+          dispatched (atom [])
+          sse1 (mock-sse "conn-1")]
+      (sfere/store! store [:user-1 [:room "lobby"]] sse1)
+
+      (let [handler (get-in (sfere/registry store) [::s/effects :ascolais.sfere/broadcast ::s/handler])
+            ctx {:dispatch (fn [& args] (swap! dispatched conj args))}]
+        (handler ctx {} {:pattern [:* [:room "lobby"]]})
+
+        (is (empty? @dispatched))))))
 
 ;; =============================================================================
 ;; Interceptor Tests

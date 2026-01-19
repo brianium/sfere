@@ -75,38 +75,47 @@ Use `:*` as a wildcard when listing or broadcasting:
 
 ## Effects
 
+Both effects accept **variadic continuation effects** — one or more effect vectors can be passed, and all will be dispatched together atomically per connection.
+
 ### `::sfere/with-connection`
 
 Dispatch nested effects to a specific stored connection.
 
 ```clojure
+;; Single effect
 [::sfere/with-connection [:user-123 [:room "lobby"]]
  [::twk/patch-signals {:message "Hello!"}]]
+
+;; Multiple effects (variadic)
+[::sfere/with-connection [:user-123 [:room "lobby"]]
+ [::twk/patch-signals {:typing false}]
+ [::twk/patch-elements [:div "Message sent"]]]
 ```
 
 **Schema:**
 ```clojure
-[:tuple
- [:enum ::sfere/with-connection]
- ::sfere/connection-key
- :ascolais.sandestin/EffectVector]
+[:cat
+ [:= ::sfere/with-connection]
+ connection-key-schema
+ [:+ s/EffectVector]]  ;; one or more effect vectors
 ```
 
 **Behavior:**
 1. Looks up connection by full key (note: full key, not inner key)
-2. If not found, silent no-op
-3. If found, uses `dispatch` from effect context to dispatch nested effects with:
+2. If not found or no effects provided, silent no-op
+3. If found, uses `dispatch` from effect context to dispatch all nested effects with:
    - `:sse` in system set to the retrieved connection
    - `::twk/connection` in dispatch-data set to the retrieved connection
 
 **Implementation sketch:**
 ```clojure
 (defn with-connection-effect
-  [{:keys [dispatch]} store [_ key nested-fx]]
-  (when-some [conn (p/connection store key)]
-    (dispatch {:sse conn}                     ;; system-override (merged)
-              {::twk/connection conn}         ;; extra-dispatch-data
-              [nested-fx])))
+  [{:keys [dispatch]} store [_ key & nested-fxs]]
+  (when (seq nested-fxs)
+    (when-some [conn (p/connection store key)]
+      (dispatch {:sse conn}                     ;; system-override (merged)
+                {::twk/connection conn}         ;; extra-dispatch-data
+                (vec nested-fxs)))))            ;; all effects as EffectsVector
 ```
 
 ### `::sfere/broadcast`
@@ -114,44 +123,56 @@ Dispatch nested effects to a specific stored connection.
 Dispatch nested effects to all connections matching a pattern.
 
 ```clojure
+;; Single effect
 [::sfere/broadcast {:pattern [:* [:room "lobby"]]}
  [::twk/patch-signals {:message "Player joined!"}]]
+
+;; Multiple effects (variadic)
+[::sfere/broadcast {:pattern [:* [:room "lobby"]]}
+ [::twk/patch-signals {:typing false}]
+ [::twk/patch-elements [:div "Player joined!"]]]
 ```
 
 **Schema:**
 ```clojure
-[:tuple
- [:enum ::sfere/broadcast]
- [:map [:pattern ::sfere/connection-pattern]]
- :ascolais.sandestin/EffectVector]
+[:cat
+ [:= ::sfere/broadcast]
+ [:map
+  [:pattern pattern-schema]
+  [:exclude {:optional true} ...]]
+ [:+ s/EffectVector]]  ;; one or more effect vectors
 ```
 
 **Behavior:**
-1. Find all keys matching pattern
-2. Apply `:exclude` filter if provided
-3. For each matching key, look up connection and dispatch nested effects
-4. If a dispatch fails, catch exception and continue with remaining connections
-5. No connection validation before dispatch — let failures occur naturally
+1. If no effects provided, silent no-op
+2. Find all keys matching pattern
+3. Apply `:exclude` filter if provided
+4. For each matching key, look up connection and dispatch all nested effects together
+5. If a dispatch fails, catch exception and continue with remaining connections
+6. No connection validation before dispatch — let failures occur naturally
+
+**Atomicity:** All effects dispatch together in a single `dispatch` call per connection. For broadcast, all effects go to connection A, then all effects to connection B, etc.
 
 **Implementation sketch:**
 ```clojure
 (defn broadcast-effect
-  [{:keys [dispatch]} store [_ {:keys [pattern exclude]} nested-fx]]
-  (let [matching     (p/list-keys store pattern)
-        excluded     (cond
-                       (set? exclude) exclude
-                       (vector? exclude) (set (p/list-keys store exclude))
-                       :else #{})
-        keys-to-send (remove excluded matching)]
-    (doseq [k keys-to-send]
-      (try
-        (when-some [conn (p/connection store k)]
-          (dispatch {:sse conn}                     ;; system-override (merged)
-                    {::twk/connection conn}         ;; extra-dispatch-data
-                    [nested-fx]))
-        (catch Exception _
-          ;; Continue with remaining connections
-          nil)))))
+  [{:keys [dispatch]} store [_ {:keys [pattern exclude]} & nested-fxs]]
+  (when (seq nested-fxs)
+    (let [matching     (p/list-keys store pattern)
+          excluded     (cond
+                         (set? exclude) exclude
+                         (vector? exclude) (set (p/list-keys store exclude))
+                         :else #{})
+          keys-to-send (remove excluded matching)]
+      (doseq [k keys-to-send]
+        (try
+          (when-some [conn (p/connection store k)]
+            (dispatch {:sse conn}                     ;; system-override (merged)
+                      {::twk/connection conn}         ;; extra-dispatch-data
+                      (vec nested-fxs)))              ;; all effects as EffectsVector
+          (catch Exception _
+            ;; Continue with remaining connections
+            nil))))))
 ```
 
 **Props map keys:**
@@ -283,3 +304,4 @@ These functions are available for REPL usage and LLM discoverability:
 | Broadcast failure handling | Continue with remaining connections (silent) |
 | `:exclude` syntax | Both patterns and explicit key sets |
 | Connection validation | Let it fail naturally, no pre-validation |
+| Variadic continuation effects | At least one effect required (schema uses `[:+]`); all effects dispatch atomically per connection |

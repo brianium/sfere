@@ -48,34 +48,38 @@
 
 (defn- with-connection-effect
   "Effect handler for ::with-connection.
-   Dispatches nested effects to a specific stored connection."
+   Dispatches nested effects to a specific stored connection.
+   Accepts one or more effect vectors (variadic)."
   [store]
-  (fn [{:keys [dispatch]} _system key nested-fx]
-    (when-some [conn (p/connection store key)]
-      (dispatch {:sse conn}
-                {::twk/connection conn}
-                [nested-fx]))))
+  (fn [{:keys [dispatch]} _system key & nested-fxs]
+    (when (seq nested-fxs)
+      (when-some [conn (p/connection store key)]
+        (dispatch {:sse conn}
+                  {::twk/connection conn}
+                  (vec nested-fxs))))))
 
 (defn- broadcast-effect
   "Effect handler for ::broadcast.
-   Dispatches nested effects to all connections matching pattern."
+   Dispatches nested effects to all connections matching pattern.
+   Accepts one or more effect vectors (variadic)."
   [store]
-  (fn [{:keys [dispatch]} _system {:keys [pattern exclude]} nested-fx]
-    (let [matching     (p/list-keys store pattern)
-          excluded     (cond
-                         (set? exclude) exclude
-                         (vector? exclude) (set (p/list-keys store exclude))
-                         :else #{})
-          keys-to-send (remove excluded matching)]
-      (doseq [k keys-to-send]
-        (try
-          (when-some [conn (p/connection store k)]
-            (dispatch {:sse conn}
-                      {::twk/connection conn}
-                      [nested-fx]))
-          (catch Exception _
-            ;; Continue broadcasting to remaining connections on error
-            nil))))))
+  (fn [{:keys [dispatch]} _system {:keys [pattern exclude]} & nested-fxs]
+    (when (seq nested-fxs)
+      (let [matching     (p/list-keys store pattern)
+            excluded     (cond
+                           (set? exclude) exclude
+                           (vector? exclude) (set (p/list-keys store exclude))
+                           :else #{})
+            keys-to-send (remove excluded matching)]
+        (doseq [k keys-to-send]
+          (try
+            (when-some [conn (p/connection store k)]
+              (dispatch {:sse conn}
+                        {::twk/connection conn}
+                        (vec nested-fxs)))
+            (catch Exception _
+              ;; Continue broadcasting to remaining connections on error
+              nil)))))))
 
 (defn- store-connection!
   "Store connection if conditions are met:
@@ -178,35 +182,44 @@
      {::s/description "Dispatch nested effects to a specific stored connection.
 
    Arguments:
-     key       - Full connection key [scope-id [:category identifier]]
-     nested-fx - Effect vector to dispatch to the connection
+     key        - Full connection key [scope-id [:category identifier]]
+     nested-fxs - One or more effect vectors to dispatch to the connection
 
-   Example:
+   Example (single effect):
      [::sfere/with-connection [:ascolais.sfere/default-scope [:lobby \"brian\"]]
-      [::twk/patch-signals {:message \"\"}]]"
-      ::s/schema [:tuple
+      [::twk/patch-signals {:message \"\"}]]
+
+   Example (multiple effects):
+     [::sfere/with-connection [:ascolais.sfere/default-scope [:lobby \"brian\"]]
+      [::twk/patch-signals {:typing false}]
+      [::twk/patch-elements [:div \"Done\"]]]"
+      ::s/schema [:cat
                   [:= with-connection-key]
                   connection-key-schema
-                  s/EffectVector]
+                  [:+ s/EffectVector]]
       ::s/handler (with-connection-effect store)}
 
      broadcast-key
      {::s/description "Dispatch nested effects to all connections matching a pattern.
 
    Arguments:
-     opts      - Map with :pattern (required) and :exclude (optional)
-     nested-fx - Effect vector to dispatch to each matching connection
+     opts       - Map with :pattern (required) and :exclude (optional)
+     nested-fxs - One or more effect vectors to dispatch to each matching connection
 
    Pattern examples:
      [:* [:lobby :*]]          - all lobby connections
      [:* [:lobby \"general\"]]   - all connections in 'general' lobby
      [:user-123 [:lobby :*]]   - specific user's lobby connections
 
-   Example:
-     [::sfere/broadcast {:pattern [:* [:lobby :*]]
-                         :exclude #{specific-key}}
+   Example (single effect):
+     [::sfere/broadcast {:pattern [:* [:lobby :*]]}
+      [::twk/patch-elements [:div \"Hello\"]]]
+
+   Example (multiple effects):
+     [::sfere/broadcast {:pattern [:* [:lobby :*]]}
+      [::twk/patch-signals {:typing false}]
       [::twk/patch-elements [:div \"Hello\"]]]"
-      ::s/schema [:tuple
+      ::s/schema [:cat
                   [:= broadcast-key]
                   [:map
                    [:pattern pattern-schema]
@@ -214,7 +227,7 @@
                     [:or
                      [:set connection-key-schema]
                      pattern-schema]]]
-                  s/EffectVector]
+                  [:+ s/EffectVector]]
       ::s/handler (broadcast-effect store)}}
 
     ::s/interceptors

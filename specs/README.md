@@ -38,6 +38,7 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 (none)
 
 ### Completed
+1. [Variadic Continuation Effects](./012-variadic-continuation-effects.md) - Enable broadcast/with-connection to accept multiple continuation effects
 1. [Demo Presence Detection](./011-demo-presence.md) - Simplified to explicit leave only; documents client heartbeat for apps needing real-time presence
 1. [SSE Close Immediate Purge](./010-sse-close-immediate-purge.md) - Fix sliding expiry sync issue by purging connections immediately on SSE close
 1. [Unified on-evict Callback](./009-unified-on-evict.md) - Removed on-purge from registry, added on-evict to atom store via add-watch
