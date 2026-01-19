@@ -32,7 +32,7 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-(none)
+1. [Demo Heartbeat](./011-demo-heartbeat.md) - Application-level heartbeat to detect dead connections
 
 ### Active
 (none)
