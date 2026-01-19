@@ -7,7 +7,9 @@
     (stop-fn)))
 
 (def config
-  {::app/store         {:type :atom}
+  {::app/store         {:type :caffeine
+                        :ttl-seconds 30
+                        :on-evict (app/make-on-evict app/*dispatch)}
    ::app/dispatch      {:store (ig/ref ::app/store)}
    ::app/with-datastar {:dispatch (ig/ref ::app/dispatch)}
    ::app/router        {:routes     app/routes

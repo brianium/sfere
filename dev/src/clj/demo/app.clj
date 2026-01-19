@@ -202,21 +202,45 @@
        [::twk/close-sse]]]}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; on-purge callback
+;; on-purge callback (dispatch-triggered)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn on-purge
-  "Called when connection is purged (SSE closes).
+  "Called when connection is purged via ::twk/sse-closed dispatch.
 
-   NOTE: We intentionally do NOT broadcast 'user left' here because SSE connections
-   close frequently due to normal browser behavior (tab switching, idle timeout, etc.).
-   The user hasn't actually left - they're still on the page.
+   NOTE: We intentionally do NOT broadcast 'user left' here because this
+   only fires when the server tries to write to a closed connection. SSE
+   connections close frequently due to normal browser behavior (tab
+   switching, idle timeout, etc.) - the user hasn't necessarily left.
 
-   'User left' notifications only happen via explicit /leave action."
+   'User left' notifications are handled by on-evict (TTL expiration)."
   [_ctx [_scope [_category username] :as key]]
   (tap> {:sfere/event :on-purge :key key :username username})
-  ;; Just log - don't broadcast departure
   nil)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; on-evict callback (TTL-triggered)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn make-on-evict
+  "Create an on-evict callback that broadcasts 'user left' on TTL expiration.
+
+   Since on-evict is called by Caffeine (not during dispatch), we need to
+   capture the dispatch function to broadcast departure messages."
+  [dispatch-atom]
+  (fn [[_scope [_category username] :as key] _conn cause]
+    (tap> {:sfere/event :on-evict :key key :username username :cause cause})
+    (when (= cause :expired)
+      ;; Use captured dispatch to broadcast departure
+      (when-let [dispatch @dispatch-atom]
+        (dispatch {} {}
+                  [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
+                    [::twk/patch-elements (participant-left username)
+                     {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
+                   [::sfere/broadcast {:pattern [:* [:lobby :*]]}
+                    [::twk/patch-elements ""
+                     {twk/selector (str "#participant-" username)
+                      twk/patch-mode twk/pm-remove}]]])))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Routes
@@ -234,8 +258,16 @@
 ;; Integrant components
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defmethod ig/init-key ::store [_ {:keys [type] :or {type :atom}}]
-  (sfere/store {:type type}))
+(defmethod ig/init-key ::store [_ {:keys [type ttl-seconds on-evict]
+                                   :or {type :caffeine
+                                        ttl-seconds 30}}]
+  (if (= type :caffeine)
+    (sfere/store {:type :caffeine
+                  :duration-ms (* ttl-seconds 1000)
+                  :expiry-mode :sliding
+                  :scheduler true
+                  :on-evict on-evict})
+    (sfere/store {:type type})))
 
 (defmethod ig/init-key ::dispatch [_ {:keys [store]}]
   (let [dispatch (s/create-dispatch
