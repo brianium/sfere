@@ -30,7 +30,6 @@ Sfere exports a single Sandestin registry that provides SSE connection managemen
 | Key | Description |
 |-----|-------------|
 | `:id-fn` | `(fn [ctx] scope-id)` — Derives scope-id from context. Defaults to `(constantly ::sfere/default-scope)` |
-| `:on-purge` | `(fn [ctx key])` — Called when a connection is purged (e.g., SSE closed). Defaults to no-op |
 
 ### Usage with Sandestin/Twk
 
@@ -218,25 +217,29 @@ Storage happens when:
 
 When `::twk/sse-closed` is dispatched, the interceptor:
 1. Re-derives the full key using `id-fn` + `::sfere/key` from response
-2. Calls `:on-purge` callback if provided
-3. Removes connection from store
+2. Removes connection from store (calls `purge!`, which triggers store's `:on-evict`)
 
 Note: Twk keeps the response in dispatch-data throughout the connection lifecycle, so `::sfere/key` is available on close.
 
-### on-purge vs on-evict
+### Unified on-evict Callback
 
-There are two different callbacks for connection lifecycle events:
+Connection removal callbacks are handled at the **store level**, not the registry level. Both store types support `:on-evict`:
 
-| Callback | Location | Trigger | Context |
-|----------|----------|---------|---------|
-| `:on-purge` | Registry option | `::twk/sse-closed` dispatched (write failure detected) | Full dispatch context available |
-| `:on-evict` | Caffeine store option | TTL expiration, explicit purge, size limits | No dispatch context |
+```clojure
+(fn [key conn cause]
+  ;; key: connection key [scope-id [category id]]
+  ;; conn: the connection being removed
+  ;; cause: keyword indicating why
+  )
+```
 
-**`:on-purge`** fires during dispatch when http-kit detects the SSE connection closed. This typically happens when the server attempts to write to a dead connection. Use for logging or cleanup that needs access to the request context.
+**Cause values:**
+- Caffeine: `:expired`, `:explicit`, `:replaced`, `:size`, `:collected`
+- Atom: `:explicit`, `:replaced`
 
-**`:on-evict`** fires when Caffeine evicts an entry. Since it's called by Caffeine's internal thread (not during dispatch), there's no request context. If you need to broadcast when users depart, capture the dispatch function in a closure.
+When the registry auto-purges on SSE close, it calls `purge!` on the store, which triggers `on-evict` with `:explicit` cause.
 
-See [008-sse-close-purge-fix.md](./008-sse-close-purge-fix.md) for full details on SSE disconnect detection limitations.
+See [008-sse-close-purge-fix.md](./008-sse-close-purge-fix.md) for SSE disconnect detection limitations and [009-unified-on-evict.md](./009-unified-on-evict.md) for the unified callback design.
 
 ## Public API Functions
 

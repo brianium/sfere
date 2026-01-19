@@ -4,11 +4,11 @@
 
 | Component | Status |
 |-----------|--------|
-| Design | Complete |
-| Remove on-purge from registry | Pending |
-| Add on-evict to atom store | Pending |
-| Update demo | Pending |
-| Update docs | Pending |
+| Design | **Complete** |
+| Remove on-purge from registry | **Complete** |
+| Add on-evict to atom store | **Complete** |
+| Update demo | **Complete** |
+| Update docs | **Complete** |
 
 ## Problem Statement
 
@@ -96,9 +96,9 @@ Users currently using `:on-purge`:
 
 ## Implementation Plan
 
-- [ ] Add `:on-evict` to atom store using `add-watch`
-- [ ] Remove `:on-purge` from registry
-- [ ] Update registry interceptor (just calls purge!, no callback)
-- [ ] Update demo to use store-level on-evict only
-- [ ] Update README documentation
-- [ ] Update registry spec (002)
+- [x] Add `:on-evict` to atom store using `add-watch`
+- [x] Remove `:on-purge` from registry
+- [x] Update registry interceptor (just calls purge!, no callback)
+- [x] Update demo to use store-level on-evict only
+- [x] Update README documentation
+- [x] Update registry spec (002)
