@@ -32,7 +32,7 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-(none)
+1. [Unified on-evict Callback](./009-unified-on-evict.md) - Remove on-purge from registry, add on-evict to atom store via add-watch
 
 ### Active
 (none)
