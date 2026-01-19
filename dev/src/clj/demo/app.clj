@@ -202,23 +202,51 @@
        [::twk/close-sse]]]}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; on-evict callback
+;; Application-level lifecycle handling
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+;; NOTE: Connection lifecycle management is an APPLICATION concern, not sfere's.
+;; Sfere provides primitives (on-evict, list-keys, purge!) that applications
+;; can use to implement their own lifecycle logic.
+;;
+;; This demo shows ONE way to handle "user left" notifications:
+;; - Use on-evict to react when connections are removed
+;; - Broadcast departure messages to remaining users
+;;
+;; Limitations of this approach:
+;; - SSE close is only detected on failed writes (passive detection)
+;; - If all users go idle, connections expire via TTL together
+;; - For real-time detection, implement application-level heartbeats
+;;
+;; Alternative approaches:
+;; - Periodic heartbeat that writes to all connections (flushes dead ones)
+;; - Client-initiated keepalive pings
+;; - Only broadcast departures on explicit "Leave" action (ignore TTL expiry)
+
 (defn make-on-evict
-  "Create an on-evict callback that broadcasts 'user left' on eviction.
+  "Create an on-evict callback for the demo app.
 
-   Since on-evict is called by the store (not during dispatch), we need to
-   capture the dispatch function to broadcast departure messages.
+   This is APPLICATION-LEVEL logic demonstrating how to use sfere's on-evict
+   primitive. Sfere itself doesn't handle 'user left' notifications.
 
-   Broadcasts on:
-   - :expired - TTL timeout (user inactive) [Caffeine only]
-   - :explicit - Registry purged connection (SSE close detected)"
+   The callback:
+   1. Logs the eviction (for debugging via tap>/Portal)
+   2. Broadcasts 'user left' message to remaining connections
+   3. Removes the user from participant lists
+
+   Cause values:
+   - :explicit - SSE close was detected (connection purged by registry)
+   - :expired  - TTL timeout (Caffeine store only)
+   - :replaced - Connection was overwritten by a new one"
   [dispatch-atom]
   (fn [[_scope [_category username] :as key] _conn cause]
-    (tap> {:sfere/event :on-evict :key key :username username :cause cause})
+    (tap> {:demo/event :on-evict
+           :key key
+           :username username
+           :cause cause})
+
+    ;; Only broadcast for explicit close or expiry, not replacement
     (when (#{:expired :explicit} cause)
-      ;; Use captured dispatch to broadcast departure
       (when-let [dispatch @dispatch-atom]
         (dispatch {} {}
                   [[::sfere/broadcast {:pattern [:* [:lobby :*]]}

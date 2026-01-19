@@ -84,13 +84,17 @@ This establishes a persistent SSE connection that stays open to receive broadcas
 
 **Fix:** Use selector targeting the specific element: `{twk/selector "#participant-brian" twk/patch-mode twk/pm-remove}`
 
-### 6. on-purge Broadcasting Departures
+### 6. Connection Lifecycle is Application-Level
 
-**Symptom:** Users shown as "left" when they hadn't actually left (just SSE reconnection).
+**Important:** Sfere is a connection storage library, not a connection monitoring library. Lifecycle management (detecting disconnects, broadcasting "user left") is an application concern.
 
-**Root Cause:** SSE connections close frequently due to normal browser behavior (tab switching, idle timeout, page visibility changes). Broadcasting "user left" on every close was incorrect.
+The demo uses `on-evict` to broadcast "user left" messages, but this is **application-level logic**, not a sfere feature. The demo shows one approach; applications can choose:
 
-**Fix:** Only broadcast departures via explicit `/leave` action. The `on-purge` callback just logs for debugging - it doesn't broadcast.
+- Only broadcast on explicit "Leave" action (ignore TTL/SSE close)
+- Use on-evict to broadcast for all eviction causes
+- Implement heartbeats for real-time detection
+
+**Limitation:** SSE close detection is passive — the server only knows a connection is dead when it tries to write to it. If all users go idle, connections expire via TTL together.
 
 ## Overview
 
@@ -269,15 +273,27 @@ Broadcast departure, remove from participant lists, close stored SSE.
        [::twk/close-sse]]]}))
 ```
 
-### on-purge (logging only)
-SSE connections close frequently due to browser behavior. We only log, not broadcast.
+### on-evict (application-level lifecycle)
+
+The demo uses `on-evict` to broadcast "user left" messages. This is **application logic**, not sfere's responsibility.
 
 ```clojure
-(defn on-purge
-  "Called when connection is purged. Just logs - no broadcast."
-  [_ctx [_scope [_category username] :as key]]
-  (tap> {:sfere/event :on-purge :key key :username username})
-  nil)
+(defn make-on-evict
+  "Application-level callback demonstrating sfere's on-evict primitive."
+  [dispatch-atom]
+  (fn [[_scope [_category username] :as key] _conn cause]
+    (tap> {:demo/event :on-evict :key key :username username :cause cause})
+    ;; Application decides what to do on eviction
+    (when (#{:expired :explicit} cause)
+      (when-let [dispatch @dispatch-atom]
+        (dispatch {} {}
+          [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
+            [::twk/patch-elements (participant-left username)
+             {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
+           [::sfere/broadcast {:pattern [:* [:lobby :*]]}
+            [::twk/patch-elements ""
+             {twk/selector (str "#participant-" username)
+              twk/patch-mode twk/pm-remove}]]])))))
 ```
 
 ## System Setup
@@ -288,26 +304,22 @@ SSE connections close frequently due to browser behavior. We only log, not broad
 (require '[ascolais.sfere :as sfere])
 (require '[starfederation.datastar.clojure.adapter.http-kit :as hk])
 
-(def store (sfere/store {:type :atom}))
-
-;; Atom to hold dispatch reference for on-purge callback
+;; Atom to hold dispatch reference for on-evict callback
 (def *dispatch (atom nil))
 
-(defn on-purge
-  "Broadcast departure when connection is purged."
-  [ctx [scope [category username] :as key]]
-  (when-some [dispatch @*dispatch]
-    (dispatch {} {}
-      [[::sfere/broadcast {:pattern [:* [:lobby :*]]
-                           :exclude #{key}}
-        [::twk/patch-elements (participant-left username)]]])))
+;; on-evict is application-level logic, see make-on-evict above
+
+(def store (sfere/store {:type :caffeine
+                         :duration-ms 30000
+                         :expiry-mode :sliding
+                         :on-evict (make-on-evict *dispatch)}))
 
 (def dispatch
   (s/create-dispatch
     [(twk/registry)
-     (sfere/registry store {:on-purge on-purge})]))  ;; default id-fn is fine
+     (sfere/registry store)]))
 
-;; Capture dispatch reference for on-purge
+;; Capture dispatch reference for on-evict
 (reset! *dispatch dispatch)
 
 (def app
@@ -371,10 +383,12 @@ Note: `dev.data-star.clojure/http-kit` is already in :dev deps.
 
 ## Notes
 
-**Dispatch capture pattern:** The `on-purge` callback requires capturing the dispatch function in an atom because Sandestin interceptors don't receive dispatch in their context (only effect handlers do). This is a known limitation.
+**Dispatch capture pattern:** The `on-evict` callback requires capturing the dispatch function in an atom because the callback is invoked by the store (Caffeine), not during dispatch. This is a known pattern for out-of-band notifications.
 
 **No sessions needed:** By embedding username in the key and using `data-bind` for client persistence, we avoid server-side session management entirely.
 
-**SSE connection lifecycle:** Browser SSE connections close frequently due to tab switching, idle timeouts, and visibility changes. Don't treat every close as a "user left" event. Only explicit actions (like clicking "Leave") should trigger departure broadcasts.
+**Connection lifecycle is application-level:** Sfere provides primitives (`on-evict`, `list-keys`, `purge!`) for applications to build their own lifecycle logic. The demo shows one approach using `on-evict` to broadcast departures, but applications can choose different strategies (heartbeats, explicit leave only, etc.).
 
-**data-init vs @sse-post:** Datastar's `@sse-post()` is designed for request/response patterns where the SSE closes after the response. For persistent connections that receive multiple events over time, use `data-init` with `@get()` instead.
+**SSE close detection is passive:** The server only knows a connection is dead when it tries to write to it. For real-time disconnect detection, implement application-level heartbeats.
+
+**data-init vs @sse-post:** Datastar's `@sse-post()` is designed for request/response patterns where the SSE closes after the response. For persistent connections that receive multiple events over time, use `data-init` with `@post()` instead.
