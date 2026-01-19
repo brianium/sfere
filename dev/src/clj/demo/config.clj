@@ -8,8 +8,10 @@
 
 (def config
   {::app/store         {:type :caffeine
-                        :ttl-seconds 30
-                        :on-evict (app/make-on-evict app/*dispatch)}
+                        :ttl-seconds 30}
+   ;; NOTE: No on-evict callback. "User left" is only broadcast on explicit
+   ;; Leave action. TTL silently cleans up abandoned connections.
+   ;; Real-time presence detection requires client heartbeats (see spec 011).
    ::app/dispatch      {:store (ig/ref ::app/store)}
    ::app/with-datastar {:dispatch (ig/ref ::app/dispatch)}
    ::app/router        {:routes     app/routes

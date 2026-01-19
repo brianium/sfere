@@ -11,12 +11,14 @@
             [starfederation.datastar.clojure.adapter.http-kit :as hk]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Dispatch capture for on-purge
+;; Dispatch reference for REPL usage
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (def *dispatch
-  "Atom to hold dispatch reference for on-evict callback.
-   Needed because on-evict is called by Caffeine, not during dispatch."
+  "Atom holding dispatch reference for REPL usage.
+   Allows sending effects from the REPL:
+   (@*dispatch {} {} [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
+                       [::twk/patch-elements [:div \"Hello from REPL\"]]]])"
   (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -202,60 +204,23 @@
        [::twk/close-sse]]]}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Application-level lifecycle handling
+;; Presence and Lifecycle Notes
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; NOTE: Connection lifecycle management is an APPLICATION concern, not sfere's.
-;; Sfere provides primitives (on-evict, list-keys, purge!) that applications
-;; can use to implement their own lifecycle logic.
+;; This demo uses EXPLICIT LEAVE for "user left" notifications.
 ;;
-;; This demo shows ONE way to handle "user left" notifications:
-;; - Use on-evict to react when connections are removed
-;; - Broadcast departure messages to remaining users
+;; Why not detect browser close automatically?
+;; - SSE is one-way (server→client); server can't detect client disconnect
+;; - http-kit only detects dead connections on write failure
+;; - Writes are buffered, so detection is unreliable
 ;;
-;; Limitations of this approach:
-;; - SSE close is only detected on failed writes (passive detection)
-;; - If all users go idle, connections expire via TTL together
-;; - For real-time detection, implement application-level heartbeats
+;; The demo approach:
+;; - Explicit Leave button → broadcasts "user left"
+;; - Browser close/crash → connection silently expires via TTL
+;; - No on-evict callback; TTL is just cleanup, not presence
 ;;
-;; Alternative approaches:
-;; - Periodic heartbeat that writes to all connections (flushes dead ones)
-;; - Client-initiated keepalive pings
-;; - Only broadcast departures on explicit "Leave" action (ignore TTL expiry)
-
-(defn make-on-evict
-  "Create an on-evict callback for the demo app.
-
-   This is APPLICATION-LEVEL logic demonstrating how to use sfere's on-evict
-   primitive. Sfere itself doesn't handle 'user left' notifications.
-
-   The callback:
-   1. Logs the eviction (for debugging via tap>/Portal)
-   2. Broadcasts 'user left' message to remaining connections
-   3. Removes the user from participant lists
-
-   Cause values:
-   - :explicit - SSE close was detected (connection purged by registry)
-   - :expired  - TTL timeout (Caffeine store only)
-   - :replaced - Connection was overwritten by a new one"
-  [dispatch-atom]
-  (fn [[_scope [_category username] :as key] _conn cause]
-    (tap> {:demo/event :on-evict
-           :key key
-           :username username
-           :cause cause})
-
-    ;; Only broadcast for explicit close or expiry, not replacement
-    (when (#{:expired :explicit} cause)
-      (when-let [dispatch @dispatch-atom]
-        (dispatch {} {}
-                  [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
-                    [::twk/patch-elements (participant-left username)
-                     {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
-                   [::sfere/broadcast {:pattern [:* [:lobby :*]]}
-                    [::twk/patch-elements ""
-                     {twk/selector (str "#participant-" username)
-                      twk/patch-mode twk/pm-remove}]]])))))
+;; For real-time presence detection, applications should implement
+;; client-initiated heartbeats (see spec 011-demo-presence.md).
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Routes

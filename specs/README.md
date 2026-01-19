@@ -32,12 +32,13 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-1. [Demo Heartbeat](./011-demo-heartbeat.md) - Application-level heartbeat to detect dead connections
+(none)
 
 ### Active
 (none)
 
 ### Completed
+1. [Demo Presence Detection](./011-demo-presence.md) - Simplified to explicit leave only; documents client heartbeat for apps needing real-time presence
 1. [SSE Close Immediate Purge](./010-sse-close-immediate-purge.md) - Fix sliding expiry sync issue by purging connections immediately on SSE close
 1. [Unified on-evict Callback](./009-unified-on-evict.md) - Removed on-purge from registry, added on-evict to atom store via add-watch
 2. [SSE Close Purge Fix](./008-sse-close-purge-fix.md) - Added `on-evict` to Caffeine store, demo broadcasts "user left" on TTL expiration

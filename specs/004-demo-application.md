@@ -88,13 +88,14 @@ This establishes a persistent SSE connection that stays open to receive broadcas
 
 **Important:** Sfere is a connection storage library, not a connection monitoring library. Lifecycle management (detecting disconnects, broadcasting "user left") is an application concern.
 
-The demo uses `on-evict` to broadcast "user left" messages, but this is **application-level logic**, not a sfere feature. The demo shows one approach; applications can choose:
+The demo uses **explicit leave only** — "user left" is broadcast when the user clicks Leave. Browser close/crash results in silent TTL cleanup with no notification.
 
-- Only broadcast on explicit "Leave" action (ignore TTL/SSE close)
-- Use on-evict to broadcast for all eviction causes
-- Implement heartbeats for real-time detection
+**Why this approach?** SSE close detection is fundamentally unreliable:
+- SSE is one-way (server→client); server can't detect client disconnect
+- http-kit only discovers dead connections on write failure
+- Writes are buffered, so detection is inconsistent
 
-**Limitation:** SSE close detection is passive — the server only knows a connection is dead when it tries to write to it. If all users go idle, connections expire via TTL together.
+For real-time presence, applications should implement client-initiated heartbeats (see spec 011-demo-presence.md).
 
 ## Overview
 
@@ -273,29 +274,6 @@ Broadcast departure, remove from participant lists, close stored SSE.
        [::twk/close-sse]]]}))
 ```
 
-### on-evict (application-level lifecycle)
-
-The demo uses `on-evict` to broadcast "user left" messages. This is **application logic**, not sfere's responsibility.
-
-```clojure
-(defn make-on-evict
-  "Application-level callback demonstrating sfere's on-evict primitive."
-  [dispatch-atom]
-  (fn [[_scope [_category username] :as key] _conn cause]
-    (tap> {:demo/event :on-evict :key key :username username :cause cause})
-    ;; Application decides what to do on eviction
-    (when (#{:expired :explicit} cause)
-      (when-let [dispatch @dispatch-atom]
-        (dispatch {} {}
-          [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
-            [::twk/patch-elements (participant-left username)
-             {twk/selector "#messages" twk/patch-mode twk/pm-append}]]
-           [::sfere/broadcast {:pattern [:* [:lobby :*]]}
-            [::twk/patch-elements ""
-             {twk/selector (str "#participant-" username)
-              twk/patch-mode twk/pm-remove}]]])))))
-```
-
 ## System Setup
 
 ```clojure
@@ -304,23 +282,18 @@ The demo uses `on-evict` to broadcast "user left" messages. This is **applicatio
 (require '[ascolais.sfere :as sfere])
 (require '[starfederation.datastar.clojure.adapter.http-kit :as hk])
 
-;; Atom to hold dispatch reference for on-evict callback
-(def *dispatch (atom nil))
-
-;; on-evict is application-level logic, see make-on-evict above
-
+;; Store with TTL for cleanup (no on-evict - using explicit leave only)
 (def store (sfere/store {:type :caffeine
                          :duration-ms 30000
-                         :expiry-mode :sliding
-                         :on-evict (make-on-evict *dispatch)}))
+                         :expiry-mode :sliding}))
 
 (def dispatch
   (s/create-dispatch
     [(twk/registry)
      (sfere/registry store)]))
 
-;; Capture dispatch reference for on-evict
-(reset! *dispatch dispatch)
+;; Optional: capture dispatch for REPL usage
+(def *dispatch (atom dispatch))
 
 (def app
   (twk/with-datastar hk/->sse-response dispatch))
@@ -383,12 +356,12 @@ Note: `dev.data-star.clojure/http-kit` is already in :dev deps.
 
 ## Notes
 
-**Dispatch capture pattern:** The `on-evict` callback requires capturing the dispatch function in an atom because the callback is invoked by the store (Caffeine), not during dispatch. This is a known pattern for out-of-band notifications.
-
 **No sessions needed:** By embedding username in the key and using `data-bind` for client persistence, we avoid server-side session management entirely.
 
-**Connection lifecycle is application-level:** Sfere provides primitives (`on-evict`, `list-keys`, `purge!`) for applications to build their own lifecycle logic. The demo shows one approach using `on-evict` to broadcast departures, but applications can choose different strategies (heartbeats, explicit leave only, etc.).
+**Explicit leave for "user left":** The demo only broadcasts "user left" when the user clicks the Leave button. Browser close/crash results in silent TTL cleanup — no departure message is broadcast. This is intentional.
 
-**SSE close detection is passive:** The server only knows a connection is dead when it tries to write to it. For real-time disconnect detection, implement application-level heartbeats.
+**Why not detect browser close?** SSE is one-way (server→client). The server cannot reliably detect when a client disconnects. http-kit only discovers dead connections when a write fails, and writes are buffered, making detection unreliable. For real-time presence, applications should implement client-initiated heartbeats (see spec 011).
+
+**TTL is for cleanup, not presence:** The Caffeine store's TTL ensures abandoned connections don't leak. It's a safety net, not a presence mechanism.
 
 **data-init vs @sse-post:** Datastar's `@sse-post()` is designed for request/response patterns where the SSE closes after the response. For persistent connections that receive multiple events over time, use `data-init` with `@post()` instead.
