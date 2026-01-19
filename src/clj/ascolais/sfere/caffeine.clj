@@ -1,7 +1,7 @@
 (ns ascolais.sfere.caffeine
   (:require [ascolais.sfere.protocols :as p]
             [ascolais.sfere.match :refer [match-key?]])
-  (:import (com.github.benmanes.caffeine.cache Caffeine Cache Expiry Scheduler)
+  (:import (com.github.benmanes.caffeine.cache Caffeine Cache Expiry RemovalCause RemovalListener Scheduler)
            (java.time Duration Instant)))
 
 (defrecord CaffeineConnectionStore [^Cache cache expiry-mode]
@@ -25,6 +25,25 @@
     (keys (.asMap cache)))
   (list-keys [_ pattern]
     (filter #(match-key? pattern %) (keys (.asMap cache)))))
+
+(defn- cause->keyword
+  "Convert Caffeine RemovalCause to keyword."
+  [^RemovalCause cause]
+  (condp = cause
+    RemovalCause/EXPIRED :expired
+    RemovalCause/EXPLICIT :explicit
+    RemovalCause/REPLACED :replaced
+    RemovalCause/SIZE :size
+    RemovalCause/COLLECTED :collected
+    :unknown))
+
+(defn- make-removal-listener
+  "Create a RemovalListener that calls on-evict with (key conn cause)."
+  [on-evict expiry-mode]
+  (reify RemovalListener
+    (onRemoval [_ key value cause]
+      (let [conn (if (= expiry-mode :fixed) (:conn value) value)]
+        (on-evict key conn (cause->keyword cause))))))
 
 (defn- fixed-expiry
   "Create an Expiry that expires entries at a fixed time from creation."
@@ -51,8 +70,9 @@
    | :maximum-size  | Max connections in store                         | 10000      |
    | :expiry-mode   | :sliding (reset on access) or :fixed (from creation) | :sliding |
    | :scheduler     | true for system scheduler, or Scheduler instance | true if :fixed |
+   | :on-evict      | Callback (fn [key conn cause]) on eviction       | nil        |
    | :cache         | Existing Cache instance (overrides other opts)   | nil        |"
-  [{:keys [duration-ms maximum-size expiry-mode scheduler cache]
+  [{:keys [duration-ms maximum-size expiry-mode scheduler on-evict cache]
     :or {duration-ms 600000
          maximum-size 10000
          expiry-mode :sliding}}]
@@ -69,5 +89,8 @@
                     (.scheduler builder (Scheduler/systemScheduler))
                     (if (instance? Scheduler scheduler)
                       (.scheduler builder scheduler)
-                      builder))]
+                      builder))
+          builder (if on-evict
+                    (.removalListener builder (make-removal-listener on-evict expiry-mode))
+                    builder)]
       (->CaffeineConnectionStore (.build builder) expiry-mode))))

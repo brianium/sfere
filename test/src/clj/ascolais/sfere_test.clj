@@ -175,6 +175,77 @@
       (Thread/sleep 50)
       (is (nil? (sfere/connection s key)) "connection expired at fixed time despite access"))))
 
+(deftest caffeine-store-on-evict
+  (testing "on-evict called on TTL expiration with :expired cause"
+    (let [evictions (atom [])
+          on-evict (fn [key conn cause]
+                     (swap! evictions conj {:key key :conn conn :cause cause}))
+          s (caff-store/store {:duration-ms 50
+                               :scheduler true
+                               :on-evict on-evict})
+          key [:user-1 [:room "lobby"]]
+          conn {:id 1}]
+      (sfere/store! s key conn)
+      (is (= conn (sfere/connection s key)))
+      ;; Wait for expiry
+      (Thread/sleep 100)
+      ;; Force cleanup to ensure callback fires
+      (is (nil? (sfere/connection s key)))
+      (Thread/sleep 50) ;; Give async callback time to fire
+      (is (= 1 (count @evictions)) "on-evict called once")
+      (is (= {:key key :conn conn :cause :expired} (first @evictions)))))
+
+  (testing "on-evict called on explicit purge with :explicit cause"
+    (let [evictions (atom [])
+          on-evict (fn [key conn cause]
+                     (swap! evictions conj {:key key :conn conn :cause cause}))
+          s (caff-store/store {:duration-ms 60000
+                               :on-evict on-evict})
+          key [:user-1 [:room "lobby"]]
+          conn {:id 1}]
+      (sfere/store! s key conn)
+      (sfere/purge! s key)
+      (Thread/sleep 50) ;; Give async callback time to fire
+      (is (= 1 (count @evictions)) "on-evict called once")
+      (is (= {:key key :conn conn :cause :explicit} (first @evictions)))))
+
+  (testing "on-evict called with :replaced cause when overwriting"
+    (let [evictions (atom [])
+          on-evict (fn [key conn cause]
+                     (swap! evictions conj {:key key :conn conn :cause cause}))
+          s (caff-store/store {:duration-ms 60000
+                               :on-evict on-evict})
+          key [:user-1 [:room "lobby"]]
+          conn1 {:id 1}
+          conn2 {:id 2}]
+      (sfere/store! s key conn1)
+      (sfere/store! s key conn2)
+      (Thread/sleep 50) ;; Give async callback time to fire
+      (is (= 1 (count @evictions)) "on-evict called once for replaced entry")
+      (is (= {:key key :conn conn1 :cause :replaced} (first @evictions)))))
+
+  (testing "on-evict works with fixed expiry mode"
+    (let [evictions (atom [])
+          on-evict (fn [key conn cause]
+                     (swap! evictions conj {:key key :conn conn :cause cause}))
+          ;; Note: fixed expiry mode automatically enables scheduler
+          s (caff-store/store {:duration-ms 50
+                               :expiry-mode :fixed
+                               :on-evict on-evict})
+          key [:user-1 [:room "lobby"]]
+          conn {:id 1}]
+      (sfere/store! s key conn)
+      ;; Wait for fixed expiry and cleanup
+      (Thread/sleep 150)
+      (is (nil? (sfere/connection s key)))
+      ;; Wait a bit more for async callback
+      (Thread/sleep 100)
+      (is (= 1 (count @evictions)))
+      (let [eviction (first @evictions)]
+        (is (= key (:key eviction)))
+        (is (= conn (:conn eviction)) "on-evict receives unwrapped conn, not {:conn ... :created-at ...}")
+        (is (= :expired (:cause eviction)))))))
+
 ;; =============================================================================
 ;; Concurrency Tests
 ;; =============================================================================
