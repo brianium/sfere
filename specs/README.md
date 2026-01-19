@@ -32,7 +32,7 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-(none - all specs complete)
+1. [SSE Close Purge Fix](./008-sse-close-purge-fix.md) - Add `on-evict` to Caffeine store, update demo to broadcast "user left" on TTL expiration
 
 ### Active
 (none)
