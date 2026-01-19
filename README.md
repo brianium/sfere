@@ -130,7 +130,11 @@ For persistent connections (chat, live updates), use `data-init`:
 (sfere/store {:type :atom})
 ```
 
-Simple in-memory store. No expiration.
+Simple in-memory store. No TTL expiration.
+
+| Option | Description |
+|--------|-------------|
+| `:on-evict` | `(fn [key conn cause])` — Called on removal (`:explicit`, `:replaced`) |
 
 ### Caffeine Store (Production)
 
@@ -194,22 +198,30 @@ SSE is a one-way protocol (server → client). **The server cannot detect when a
 
 This means there's inherent delay between a user closing their tab and the server knowing about it.
 
-### Two-Callback Pattern
+### Unified on-evict Callback
 
-Sfere provides two callbacks for different scenarios:
+Both store types support a single `:on-evict` callback with the same signature:
 
-| Callback | Where | When | Has dispatch context? |
-|----------|-------|------|----------------------|
-| `:on-purge` | Registry | `::twk/sse-closed` dispatched (write failure detected) | Yes |
-| `:on-evict` | Caffeine store | TTL expiration or explicit purge | No |
+```clojure
+(fn [key conn cause]
+  ;; key: connection key [scope-id [category id]]
+  ;; conn: the connection being removed
+  ;; cause: keyword indicating why
+  )
+```
 
-**`:on-purge`** fires during dispatch when http-kit detects the SSE connection closed (typically after a failed write). Use for logging or cleanup that needs dispatch context.
+**Cause values by store type:**
 
-**`:on-evict`** fires when Caffeine evicts an entry (TTL, size limits, etc.). Since it's called outside dispatch, you must capture the dispatch function if you want to broadcast.
+| Store | Causes |
+|-------|--------|
+| Caffeine | `:expired`, `:explicit`, `:replaced`, `:size`, `:collected` |
+| Atom | `:explicit`, `:replaced` |
+
+The registry auto-purges connections on SSE close, which triggers `on-evict` with `:explicit` cause.
 
 ### Handling User Departure
 
-For "user left" notifications, rely on **TTL expiration** rather than connection close detection:
+For "user left" notifications, use `:on-evict` and capture dispatch:
 
 ```clojure
 ;; 1. Capture dispatch reference
@@ -217,23 +229,23 @@ For "user left" notifications, rely on **TTL expiration** rather than connection
 
 ;; 2. Create on-evict that broadcasts departure
 (defn on-evict [key _conn cause]
-  (when (= cause :expired)
+  (when (#{:expired :explicit} cause)
     (let [[_scope [_category username]] key]
       (@*dispatch {} {}
         [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
           [::twk/patch-elements [:div (str username " left")]]]]))))
 
-;; 3. Configure store with TTL and callback
+;; 3. Configure store with callback
 (def store (sfere/store {:type :caffeine
-                         :duration-ms 30000  ;; 30s inactivity = departed
+                         :duration-ms 30000
                          :expiry-mode :sliding
                          :on-evict on-evict}))
 
-;; 4. Wire dispatch (store is captured during registry creation)
+;; 4. Wire dispatch
 (reset! *dispatch (s/create-dispatch [(twk/registry) (sfere/registry store)]))
 ```
 
-With sliding expiry, active users reset the TTL on each interaction. Inactive users (tab closed, network lost) expire after the TTL period.
+With Caffeine's sliding expiry, active users reset the TTL. Inactive users (tab closed, network lost) expire after the TTL period.
 
 ## REPL Discoverability
 
@@ -264,14 +276,12 @@ With sliding expiry, active users reset the TTL on each interaction. Inactive us
 (def dispatch
   (s/create-dispatch
     [(twk/registry)
-     (sfere/registry store {:id-fn    #(get-in % [:session :user-id])
-                            :on-purge (fn [ctx key] (log/info "Purged" key))})]))
+     (sfere/registry store {:id-fn #(get-in % [:session :user-id])})]))
 ```
 
 | Option | Description |
 |--------|-------------|
 | `:id-fn` | `(fn [ctx] scope-id)` — Derives scope-id from handler context |
-| `:on-purge` | `(fn [ctx key])` — Called when connection is removed from store |
 
 ## Full Example
 
