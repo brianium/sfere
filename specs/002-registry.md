@@ -223,6 +223,21 @@ When `::twk/sse-closed` is dispatched, the interceptor:
 
 Note: Twk keeps the response in dispatch-data throughout the connection lifecycle, so `::sfere/key` is available on close.
 
+### on-purge vs on-evict
+
+There are two different callbacks for connection lifecycle events:
+
+| Callback | Location | Trigger | Context |
+|----------|----------|---------|---------|
+| `:on-purge` | Registry option | `::twk/sse-closed` dispatched (write failure detected) | Full dispatch context available |
+| `:on-evict` | Caffeine store option | TTL expiration, explicit purge, size limits | No dispatch context |
+
+**`:on-purge`** fires during dispatch when http-kit detects the SSE connection closed. This typically happens when the server attempts to write to a dead connection. Use for logging or cleanup that needs access to the request context.
+
+**`:on-evict`** fires when Caffeine evicts an entry. Since it's called by Caffeine's internal thread (not during dispatch), there's no request context. If you need to broadcast when users depart, capture the dispatch function in a closure.
+
+See [008-sse-close-purge-fix.md](./008-sse-close-purge-fix.md) for full details on SSE disconnect detection limitations.
+
 ## Public API Functions
 
 These functions are available for REPL usage and LLM discoverability:

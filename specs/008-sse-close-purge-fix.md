@@ -7,7 +7,7 @@
 | Investigation | **Complete** |
 | Root cause | SSE protocol limitation - server can't detect passive client disconnect |
 | Design | **Complete** |
-| Implementation | Pending |
+| Implementation | **Complete** |
 
 ## Problem Statement
 
@@ -132,22 +132,22 @@ The demo should:
 ## Implementation Plan
 
 ### Phase 1: Add on-evict to Caffeine Store
-- [ ] Add `:on-evict` option to `make-caffeine-store`
-- [ ] Wire to Caffeine's `RemovalListener`
-- [ ] Pass removal cause to callback
-- [ ] Add tests
+- [x] Add `:on-evict` option to `make-caffeine-store`
+- [x] Wire to Caffeine's `RemovalListener`
+- [x] Pass removal cause to callback
+- [x] Add tests (using fake ticker and direct executor for deterministic testing)
 
 ### Phase 2: Update Demo
-- [ ] Switch demo from atom to Caffeine store
-- [ ] Add TTL configuration (30s)
-- [ ] Implement `on-evict` that broadcasts "user left"
-- [ ] Test the full flow
+- [x] Switch demo from atom to Caffeine store
+- [x] Add TTL configuration (30s)
+- [x] Implement `on-evict` that broadcasts "user left"
+- [x] Test the full flow
 
 ### Phase 3: Documentation
-- [ ] Document SSE limitation in README
-- [ ] Add "Connection Lifecycle" section
-- [ ] Document Caffeine vs atom store trade-offs
-- [ ] Update registry spec (002) with clarification
+- [x] Document SSE limitation in README
+- [x] Add "Connection Lifecycle" section
+- [x] Document Caffeine vs atom store trade-offs
+- [x] Update registry spec (002) with clarification
 
 ## Implementation Notes
 

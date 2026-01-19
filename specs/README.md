@@ -32,12 +32,13 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-1. [SSE Close Purge Fix](./008-sse-close-purge-fix.md) - Add `on-evict` to Caffeine store, update demo to broadcast "user left" on TTL expiration
+(none)
 
 ### Active
 (none)
 
 ### Completed
+1. [SSE Close Purge Fix](./008-sse-close-purge-fix.md) - Added `on-evict` to Caffeine store, demo broadcasts "user left" on TTL expiration
 1. [Core Connection Store](./001-connection-store.md) - Protocol and implementations (atom, caffeine)
 2. [Sandestin Registry](./002-registry.md) - Effects, interceptors, and integration with Twk
 3. [Demo Application](./004-demo-application.md) - Lobby/room use case showcasing broadcast

@@ -14,9 +14,9 @@
 ;; Dispatch capture for on-purge
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(def ^:private *dispatch
-  "Atom to hold dispatch reference for on-purge callback.
-   Interceptors don't receive dispatch, only effect handlers do."
+(def *dispatch
+  "Atom to hold dispatch reference for on-evict callback.
+   Needed because on-evict is called by Caffeine, not during dispatch."
   (atom nil))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -223,14 +223,18 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn make-on-evict
-  "Create an on-evict callback that broadcasts 'user left' on TTL expiration.
+  "Create an on-evict callback that broadcasts 'user left' on eviction.
 
    Since on-evict is called by Caffeine (not during dispatch), we need to
-   capture the dispatch function to broadcast departure messages."
+   capture the dispatch function to broadcast departure messages.
+
+   Broadcasts on:
+   - :expired - TTL timeout (user inactive)
+   - :explicit - Registry purged connection (SSE close detected)"
   [dispatch-atom]
   (fn [[_scope [_category username] :as key] _conn cause]
     (tap> {:sfere/event :on-evict :key key :username username :cause cause})
-    (when (= cause :expired)
+    (when (#{:expired :explicit} cause)
       ;; Use captured dispatch to broadcast departure
       (when-let [dispatch @dispatch-atom]
         (dispatch {} {}

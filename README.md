@@ -146,6 +146,7 @@ Simple in-memory store. No expiration.
 | `:maximum-size` | Maximum number of stored connections | 10000 |
 | `:expiry-mode` | `:sliding` (reset on access) or `:fixed` (from creation) | `:sliding` |
 | `:scheduler` | `true` for system scheduler, or `Scheduler` instance | `true` if `:fixed` |
+| `:on-evict` | `(fn [key conn cause])` — Called when entry is evicted | `nil` |
 
 #### Expiry Modes
 
@@ -160,6 +161,79 @@ Simple in-memory store. No expiration.
 ```clojure
 (sfere/store {:type :caffeine :duration-ms 60000 :expiry-mode :fixed})
 ```
+
+#### Eviction Callbacks
+
+Use `:on-evict` to react when connections are evicted (TTL expiration, explicit purge, etc.):
+
+```clojure
+(def *dispatch (atom nil))  ;; Capture dispatch for use in callback
+
+(sfere/store {:type :caffeine
+              :duration-ms 30000
+              :expiry-mode :sliding
+              :on-evict (fn [key conn cause]
+                          (when (= cause :expired)
+                            ;; Broadcast "user left" using captured dispatch
+                            (@*dispatch {} {}
+                              [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
+                                [::twk/patch-elements [:div "User left"]]]])))})
+```
+
+Cause values: `:expired`, `:explicit`, `:replaced`, `:size`, `:collected`
+
+## Connection Lifecycle
+
+### SSE Disconnect Detection
+
+SSE is a one-way protocol (server → client). **The server cannot detect when a client passively disconnects** (e.g., closes browser tab). Detection only occurs when:
+
+1. **Write fails** — Server tries to send data, TCP reports failure
+2. **Client notification** — Client explicitly signals close (requires JS)
+3. **TCP keepalive timeout** — OS-level probes fail (takes minutes)
+
+This means there's inherent delay between a user closing their tab and the server knowing about it.
+
+### Two-Callback Pattern
+
+Sfere provides two callbacks for different scenarios:
+
+| Callback | Where | When | Has dispatch context? |
+|----------|-------|------|----------------------|
+| `:on-purge` | Registry | `::twk/sse-closed` dispatched (write failure detected) | Yes |
+| `:on-evict` | Caffeine store | TTL expiration or explicit purge | No |
+
+**`:on-purge`** fires during dispatch when http-kit detects the SSE connection closed (typically after a failed write). Use for logging or cleanup that needs dispatch context.
+
+**`:on-evict`** fires when Caffeine evicts an entry (TTL, size limits, etc.). Since it's called outside dispatch, you must capture the dispatch function if you want to broadcast.
+
+### Handling User Departure
+
+For "user left" notifications, rely on **TTL expiration** rather than connection close detection:
+
+```clojure
+;; 1. Capture dispatch reference
+(def *dispatch (atom nil))
+
+;; 2. Create on-evict that broadcasts departure
+(defn on-evict [key _conn cause]
+  (when (= cause :expired)
+    (let [[_scope [_category username]] key]
+      (@*dispatch {} {}
+        [[::sfere/broadcast {:pattern [:* [:lobby :*]]}
+          [::twk/patch-elements [:div (str username " left")]]]]))))
+
+;; 3. Configure store with TTL and callback
+(def store (sfere/store {:type :caffeine
+                         :duration-ms 30000  ;; 30s inactivity = departed
+                         :expiry-mode :sliding
+                         :on-evict on-evict}))
+
+;; 4. Wire dispatch (store is captured during registry creation)
+(reset! *dispatch (s/create-dispatch [(twk/registry) (sfere/registry store)]))
+```
+
+With sliding expiry, active users reset the TTL on each interaction. Inactive users (tab closed, network lost) expire after the TTL period.
 
 ## REPL Discoverability
 
