@@ -1,8 +1,9 @@
 (ns ascolais.sfere.caffeine
   (:require [ascolais.sfere.protocols :as p]
             [ascolais.sfere.match :refer [match-key?]])
-  (:import (com.github.benmanes.caffeine.cache Caffeine Cache Expiry RemovalCause RemovalListener Scheduler)
-           (java.time Duration Instant)))
+  (:import (com.github.benmanes.caffeine.cache Caffeine Cache Expiry RemovalCause RemovalListener Scheduler Ticker)
+           (java.time Duration Instant)
+           (java.util.concurrent Executor)))
 
 (defrecord CaffeineConnectionStore [^Cache cache expiry-mode]
   p/ConnectionStore
@@ -71,8 +72,10 @@
    | :expiry-mode   | :sliding (reset on access) or :fixed (from creation) | :sliding |
    | :scheduler     | true for system scheduler, or Scheduler instance | true if :fixed |
    | :on-evict      | Callback (fn [key conn cause]) on eviction       | nil        |
+   | :ticker        | Ticker instance for time (testing)               | nil        |
+   | :executor      | Executor for async operations (testing)          | nil        |
    | :cache         | Existing Cache instance (overrides other opts)   | nil        |"
-  [{:keys [duration-ms maximum-size expiry-mode scheduler on-evict cache]
+  [{:keys [duration-ms maximum-size expiry-mode scheduler on-evict ticker executor cache]
     :or {duration-ms 600000
          maximum-size 10000
          expiry-mode :sliding}}]
@@ -92,5 +95,16 @@
                       builder))
           builder (if on-evict
                     (.removalListener builder (make-removal-listener on-evict expiry-mode))
+                    builder)
+          builder (if (instance? Ticker ticker)
+                    (.ticker builder ticker)
+                    builder)
+          builder (if (instance? Executor executor)
+                    (.executor builder executor)
                     builder)]
       (->CaffeineConnectionStore (.build builder) expiry-mode))))
+
+(defn clean-up!
+  "Trigger cache maintenance. Useful for testing to force eviction checks."
+  [store]
+  (.cleanUp ^Cache (:cache store)))

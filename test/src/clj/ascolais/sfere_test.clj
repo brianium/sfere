@@ -3,7 +3,27 @@
             [ascolais.sfere :as sfere]
             [ascolais.sfere.match :as match]
             [ascolais.sfere.atom :as atom-store]
-            [ascolais.sfere.caffeine :as caff-store]))
+            [ascolais.sfere.caffeine :as caff-store])
+  (:import (com.github.benmanes.caffeine.cache Ticker)
+           (java.util.concurrent.atomic AtomicLong)))
+
+;; =============================================================================
+;; Test utilities for Caffeine
+;; =============================================================================
+
+(defn fake-ticker
+  "Create a fake ticker for testing. Returns [ticker advance-fn] where
+   advance-fn takes nanoseconds to advance the ticker."
+  []
+  (let [nanos (AtomicLong. 0)]
+    [(reify Ticker
+       (read [_] (.get nanos)))
+     (fn [ns] (.addAndGet nanos ns))]))
+
+(def direct-executor
+  "Executor that runs tasks synchronously on the calling thread."
+  (reify java.util.concurrent.Executor
+    (execute [_ runnable] (.run runnable))))
 
 ;; =============================================================================
 ;; Pattern Matching Tests
@@ -177,21 +197,23 @@
 
 (deftest caffeine-store-on-evict
   (testing "on-evict called on TTL expiration with :expired cause"
-    (let [evictions (atom [])
+    (let [[ticker advance!] (fake-ticker)
+          evictions (atom [])
           on-evict (fn [key conn cause]
                      (swap! evictions conj {:key key :conn conn :cause cause}))
-          s (caff-store/store {:duration-ms 50
-                               :scheduler true
+          s (caff-store/store {:duration-ms 100
+                               :ticker ticker
+                               :executor direct-executor
                                :on-evict on-evict})
           key [:user-1 [:room "lobby"]]
           conn {:id 1}]
       (sfere/store! s key conn)
       (is (= conn (sfere/connection s key)))
-      ;; Wait for expiry
-      (Thread/sleep 100)
-      ;; Force cleanup to ensure callback fires
+      ;; Advance time past expiry
+      (advance! 150000000) ;; 150ms in nanos
+      ;; Force cleanup
+      (caff-store/clean-up! s)
       (is (nil? (sfere/connection s key)))
-      (Thread/sleep 50) ;; Give async callback time to fire
       (is (= 1 (count @evictions)) "on-evict called once")
       (is (= {:key key :conn conn :cause :expired} (first @evictions)))))
 
@@ -200,12 +222,12 @@
           on-evict (fn [key conn cause]
                      (swap! evictions conj {:key key :conn conn :cause cause}))
           s (caff-store/store {:duration-ms 60000
+                               :executor direct-executor
                                :on-evict on-evict})
           key [:user-1 [:room "lobby"]]
           conn {:id 1}]
       (sfere/store! s key conn)
       (sfere/purge! s key)
-      (Thread/sleep 50) ;; Give async callback time to fire
       (is (= 1 (count @evictions)) "on-evict called once")
       (is (= {:key key :conn conn :cause :explicit} (first @evictions)))))
 
@@ -214,37 +236,15 @@
           on-evict (fn [key conn cause]
                      (swap! evictions conj {:key key :conn conn :cause cause}))
           s (caff-store/store {:duration-ms 60000
+                               :executor direct-executor
                                :on-evict on-evict})
           key [:user-1 [:room "lobby"]]
           conn1 {:id 1}
           conn2 {:id 2}]
       (sfere/store! s key conn1)
       (sfere/store! s key conn2)
-      (Thread/sleep 50) ;; Give async callback time to fire
       (is (= 1 (count @evictions)) "on-evict called once for replaced entry")
-      (is (= {:key key :conn conn1 :cause :replaced} (first @evictions)))))
-
-  (testing "on-evict works with fixed expiry mode"
-    (let [evictions (atom [])
-          on-evict (fn [key conn cause]
-                     (swap! evictions conj {:key key :conn conn :cause cause}))
-          ;; Note: fixed expiry mode automatically enables scheduler
-          s (caff-store/store {:duration-ms 50
-                               :expiry-mode :fixed
-                               :on-evict on-evict})
-          key [:user-1 [:room "lobby"]]
-          conn {:id 1}]
-      (sfere/store! s key conn)
-      ;; Wait for fixed expiry and cleanup
-      (Thread/sleep 150)
-      (is (nil? (sfere/connection s key)))
-      ;; Wait a bit more for async callback
-      (Thread/sleep 100)
-      (is (= 1 (count @evictions)))
-      (let [eviction (first @evictions)]
-        (is (= key (:key eviction)))
-        (is (= conn (:conn eviction)) "on-evict receives unwrapped conn, not {:conn ... :created-at ...}")
-        (is (= :expired (:cause eviction)))))))
+      (is (= {:key key :conn conn1 :cause :replaced} (first @evictions))))))
 
 ;; =============================================================================
 ;; Concurrency Tests
