@@ -32,7 +32,7 @@ Sfere provides SSE connection management for the Sandestin/Twk ecosystem, enabli
 ## Work Queue
 
 ### Current Priority
-(none)
+1. [SSE Close Immediate Purge](./010-sse-close-immediate-purge.md) - Fix sliding expiry sync issue by purging connections immediately on SSE close
 
 ### Active
 (none)
