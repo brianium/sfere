@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2025-01-19
+
+### Added
+- `purge-by-connection!` in registry interceptor: purges connections by matching SSE object on close, even without key in context
+
+### Changed
+- Demo simplified to "explicit leave only" — "user left" broadcasts only on Leave button click
+- TTL expiry now silently cleans up connections (no automatic departure broadcast)
+
+### Documentation
+- Clarified sfere's scope: connection storage library, not presence monitoring
+- Added spec 011 documenting presence detection patterns for applications needing real-time notifications
+
 ## [0.4.0] - 2025-01-19
 
 ### Added
