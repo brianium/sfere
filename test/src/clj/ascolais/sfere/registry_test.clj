@@ -217,7 +217,7 @@
       (is (= 0 (sfere/connection-count store))))))
 
 (deftest interceptor-purge-test
-  (testing "interceptor purges connection on sse-closed"
+  (testing "interceptor purges connection on sse-closed by matching SSE object"
     (let [store (sfere/store {:type :atom})
           sse (mock-sse "conn-1")
           reg (sfere/registry store {:id-fn (constantly :test-scope)})
@@ -226,15 +226,42 @@
       (sfere/store! store [:test-scope [:room "lobby"]] sse)
       (is (= 1 (sfere/connection-count store)))
 
-      ;; Simulate sse-closed dispatch
-      ;; The interceptor checks :actions for [[::twk/sse-closed]]
+      ;; Simulate sse-closed dispatch WITHOUT key in context
+      ;; This is the key scenario - SSE closes but we don't have the key,
+      ;; so we must find it by matching the SSE object
       (let [before-fn (:before-dispatch interceptor)
             ctx {:system {:sse sse}
                  :actions [[::twk/sse-closed]]
-                 :dispatch-data {::twk/response {::sfere/key [:room "lobby"]}}}]
+                 :dispatch-data {}}]  ;; No key in dispatch-data!
         (before-fn ctx))
 
       (is (= 0 (sfere/connection-count store)))))
+
+  (testing "interceptor purges correct connection when multiple exist"
+    (let [store (sfere/store {:type :atom})
+          sse1 (mock-sse "conn-1")
+          sse2 (mock-sse "conn-2")
+          sse3 (mock-sse "conn-3")
+          reg (sfere/registry store {:id-fn (constantly :test-scope)})
+          interceptor (first (::s/interceptors reg))]
+      ;; Store multiple connections
+      (sfere/store! store [:test-scope [:room "lobby"]] sse1)
+      (sfere/store! store [:test-scope [:room "other"]] sse2)
+      (sfere/store! store [:test-scope [:game 42]] sse3)
+      (is (= 3 (sfere/connection-count store)))
+
+      ;; Close sse2 without key context
+      (let [before-fn (:before-dispatch interceptor)
+            ctx {:system {:sse sse2}
+                 :actions [[::twk/sse-closed]]
+                 :dispatch-data {}}]
+        (before-fn ctx))
+
+      ;; Only sse2's connection should be purged
+      (is (= 2 (sfere/connection-count store)))
+      (is (= sse1 (sfere/connection store [:test-scope [:room "lobby"]])))
+      (is (nil? (sfere/connection store [:test-scope [:room "other"]])))
+      (is (= sse3 (sfere/connection store [:test-scope [:game 42]])))))
 
   (testing "interceptor purge triggers store on-evict callback"
     (let [evicted (atom nil)
@@ -247,17 +274,31 @@
       ;; Store a connection
       (sfere/store! store [:test-scope [:room "lobby"]] sse)
 
-      ;; Simulate sse-closed dispatch
+      ;; Simulate sse-closed dispatch without key in context
       (let [before-fn (:before-dispatch interceptor)
             ctx {:system {:sse sse}
                  :actions [[::twk/sse-closed]]
-                 :dispatch-data {::twk/response {::sfere/key [:room "lobby"]}}}]
+                 :dispatch-data {}}]
         (before-fn ctx))
 
       (is (some? @evicted))
       (is (= [:test-scope [:room "lobby"]] (:key @evicted)))
       (is (= sse (:conn @evicted)))
-      (is (= :explicit (:cause @evicted))))))
+      (is (= :explicit (:cause @evicted)))))
+
+  (testing "interceptor handles sse-closed when connection not in store"
+    (let [store (sfere/store {:type :atom})
+          sse (mock-sse "conn-1")
+          reg (sfere/registry store {:id-fn (constantly :test-scope)})
+          interceptor (first (::s/interceptors reg))]
+      ;; Don't store the connection - it might have already been purged
+
+      ;; Simulate sse-closed dispatch - should not throw
+      (let [before-fn (:before-dispatch interceptor)
+            ctx {:system {:sse sse}
+                 :actions [[::twk/sse-closed]]
+                 :dispatch-data {}}]
+        (is (some? (before-fn ctx)))))))
 
 ;; =============================================================================
 ;; Integration Tests

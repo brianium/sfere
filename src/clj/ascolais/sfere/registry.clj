@@ -97,6 +97,22 @@
   (when-some [full-key (scoped-key ctx id-fn)]
     (p/purge! store full-key)))
 
+(defn- find-key-by-connection
+  "Scan store to find the key for a given connection object.
+   Returns the first key whose stored connection is identical to conn."
+  [store conn]
+  (when conn
+    (->> (p/list-keys store)
+         (filter #(identical? conn (p/connection store %)))
+         first)))
+
+(defn- purge-by-connection!
+  "Find and purge a connection from store by matching the SSE object.
+   Used when SSE closes but we don't have the key in context."
+  [store conn]
+  (when-some [key (find-key-by-connection store conn)]
+    (p/purge! store key)))
+
 (defn- inject-existing-connection
   "If there's a stored connection for this key, inject it into dispatch-data
    so twk will reuse it instead of creating a new SSE.
@@ -124,10 +140,12 @@
   {:before-dispatch
    (fn [ctx]
      (cond
-       ;; On SSE close, purge the connection
+       ;; On SSE close, purge by connection object (enables immediate eviction
+       ;; even when ::sfere/key isn't in context - fixes sliding expiry sync issue)
        (sse-close-dispatch? ctx)
-       (do (purge-connection! store id-fn ctx)
-           ctx)
+       (let [sse (get-in ctx [:system :sse])]
+         (purge-by-connection! store sse)
+         ctx)
 
        ;; Otherwise, inject existing connection and/or store new one
        :else

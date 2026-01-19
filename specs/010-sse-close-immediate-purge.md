@@ -5,8 +5,8 @@
 | Component | Status |
 |-----------|--------|
 | Problem Analysis | **Complete** |
-| Design | **Proposed** |
-| Implementation | Pending |
+| Design | **Complete** |
+| Implementation | **Complete** |
 
 ## Problem Statement
 
@@ -126,12 +126,12 @@ For now, the simple scan is sufficient.
 
 ## Implementation Plan
 
-- [ ] Add `find-key-by-connection` helper to registry
-- [ ] Add `purge-by-connection!` helper to registry
-- [ ] Update `sfere-interceptor` to use `purge-by-connection!` on SSE close
-- [ ] Add tests for the new behavior
-- [ ] Update demo to use sliding expiry (revert to `:sliding`)
-- [ ] Verify "user left" broadcasts work correctly
+- [x] Add `find-key-by-connection` helper to registry
+- [x] Add `purge-by-connection!` helper to registry
+- [x] Update `sfere-interceptor` to use `purge-by-connection!` on SSE close
+- [x] Add tests for the new behavior
+- [x] Update demo to use sliding expiry (already using `:sliding`)
+- [ ] Verify "user left" broadcasts work correctly (manual testing)
 
 ## Alternative Considered
 
@@ -141,6 +141,26 @@ Rejected because:
 - Adds complexity (must keep both maps in sync)
 - SSE close is infrequent, scan cost is acceptable
 - Can optimize later if needed
+
+## Implementation Notes
+
+The implementation uses an O(n) scan via `find-key-by-connection` to locate the connection key by matching the SSE object with `identical?`. This approach was chosen over a reverse index because:
+
+1. The O(n) scan is fast enough for typical deployments (< 10,000 connections)
+2. SSE close events are infrequent relative to other operations
+3. No additional state to keep in sync with the store
+4. Simpler to reason about and debug
+
+The interceptor now calls `purge-by-connection!` on SSE close, which:
+1. Scans all keys in the store
+2. Finds the key whose stored connection is `identical?` to the closing SSE
+3. Calls `p/purge!` on that key, triggering `on-evict` with `:explicit` cause
+
+Tests verify:
+- Purging works when no key is in the dispatch context
+- Correct connection is purged when multiple exist
+- `on-evict` callback is triggered with `:explicit` cause
+- Gracefully handles case when connection is not in store
 
 ## Related
 
