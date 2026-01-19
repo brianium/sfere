@@ -163,6 +163,41 @@
           s (atom-store/store {:atom existing})]
       (is (= {:pre-existing true} (sfere/connection s [:user-1 [:room "lobby"]]))))))
 
+(deftest atom-store-on-evict
+  (testing "on-evict called on purge with :explicit cause"
+    (let [evictions (atom [])
+          on-evict (fn [key conn cause]
+                     (swap! evictions conj {:key key :conn conn :cause cause}))
+          s (atom-store/store {:on-evict on-evict})
+          key [:user-1 [:room "lobby"]]
+          conn {:id 1}]
+      (sfere/store! s key conn)
+      (sfere/purge! s key)
+      (is (= 1 (count @evictions)) "on-evict called once")
+      (is (= {:key key :conn conn :cause :explicit} (first @evictions)))))
+
+  (testing "on-evict called with :replaced cause when overwriting"
+    (let [evictions (atom [])
+          on-evict (fn [key conn cause]
+                     (swap! evictions conj {:key key :conn conn :cause cause}))
+          s (atom-store/store {:on-evict on-evict})
+          key [:user-1 [:room "lobby"]]
+          conn1 {:id 1}
+          conn2 {:id 2}]
+      (sfere/store! s key conn1)
+      (sfere/store! s key conn2)
+      (is (= 1 (count @evictions)) "on-evict called once for replaced entry")
+      (is (= {:key key :conn conn1 :cause :replaced} (first @evictions)))))
+
+  (testing "on-evict not called when storing new key"
+    (let [evictions (atom [])
+          on-evict (fn [key conn cause]
+                     (swap! evictions conj {:key key :conn conn :cause cause}))
+          s (atom-store/store {:on-evict on-evict})]
+      (sfere/store! s [:user-1 [:room "lobby"]] {:id 1})
+      (sfere/store! s [:user-2 [:room "lobby"]] {:id 2})
+      (is (= 0 (count @evictions)) "on-evict not called for new entries"))))
+
 ;; =============================================================================
 ;; Caffeine Store Specific Tests
 ;; =============================================================================
