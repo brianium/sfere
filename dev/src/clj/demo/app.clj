@@ -202,34 +202,17 @@
        [::twk/close-sse]]]}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; on-purge callback (dispatch-triggered)
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn on-purge
-  "Called when connection is purged via ::twk/sse-closed dispatch.
-
-   NOTE: We intentionally do NOT broadcast 'user left' here because this
-   only fires when the server tries to write to a closed connection. SSE
-   connections close frequently due to normal browser behavior (tab
-   switching, idle timeout, etc.) - the user hasn't necessarily left.
-
-   'User left' notifications are handled by on-evict (TTL expiration)."
-  [_ctx [_scope [_category username] :as key]]
-  (tap> {:sfere/event :on-purge :key key :username username})
-  nil)
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; on-evict callback (TTL-triggered)
+;; on-evict callback
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn make-on-evict
   "Create an on-evict callback that broadcasts 'user left' on eviction.
 
-   Since on-evict is called by Caffeine (not during dispatch), we need to
+   Since on-evict is called by the store (not during dispatch), we need to
    capture the dispatch function to broadcast departure messages.
 
    Broadcasts on:
-   - :expired - TTL timeout (user inactive)
+   - :expired - TTL timeout (user inactive) [Caffeine only]
    - :explicit - Registry purged connection (SSE close detected)"
   [dispatch-atom]
   (fn [[_scope [_category username] :as key] _conn cause]
@@ -276,7 +259,7 @@
 (defmethod ig/init-key ::dispatch [_ {:keys [store]}]
   (let [dispatch (s/create-dispatch
                   [(twk/registry)
-                   (sfere/registry store {:on-purge on-purge})])]
+                   (sfere/registry store)])]
     (reset! *dispatch dispatch)
     dispatch))
 
