@@ -92,11 +92,9 @@
         (p/store! store full-key sse)))))
 
 (defn- purge-connection!
-  "Purge connection and call on-purge callback if provided."
-  [store id-fn on-purge ctx]
+  "Purge connection from store."
+  [store id-fn ctx]
   (when-some [full-key (scoped-key ctx id-fn)]
-    (when on-purge
-      (on-purge ctx full-key))
     (p/purge! store full-key)))
 
 (defn- inject-existing-connection
@@ -122,13 +120,13 @@
 
 (defn- sfere-interceptor
   "Create interceptor for auto-store/purge of connections."
-  [store {:keys [id-fn on-purge]}]
+  [store {:keys [id-fn]}]
   {:before-dispatch
    (fn [ctx]
      (cond
        ;; On SSE close, purge the connection
        (sse-close-dispatch? ctx)
-       (do (purge-connection! store id-fn on-purge ctx)
+       (do (purge-connection! store id-fn ctx)
            ctx)
 
        ;; Otherwise, inject existing connection and/or store new one
@@ -146,7 +144,6 @@
      | Key       | Description                                              |
      |-----------|----------------------------------------------------------|
      | :id-fn    | (fn [ctx] scope-id) - Derives scope-id from context      |
-     | :on-purge | (fn [ctx key]) - Called when connection is purged        |
 
    Usage:
    ```clojure
@@ -156,7 +153,7 @@
         (sfere/registry store {:id-fn #(get-in % [:session :user-id])})]))
    ```"
   ([store] (registry store {}))
-  ([store {:keys [id-fn on-purge]
+  ([store {:keys [id-fn]
            :or {id-fn (constantly :ascolais.sfere/default-scope)}}]
    {::s/effects
     {with-connection-key
@@ -203,4 +200,4 @@
       ::s/handler (broadcast-effect store)}}
 
     ::s/interceptors
-    [(sfere-interceptor store {:id-fn id-fn :on-purge on-purge})]}))
+    [(sfere-interceptor store {:id-fn id-fn})]}))

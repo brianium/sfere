@@ -236,12 +236,13 @@
 
       (is (= 0 (sfere/connection-count store)))))
 
-  (testing "interceptor calls on-purge callback"
-    (let [store (sfere/store {:type :atom})
+  (testing "interceptor purge triggers store on-evict callback"
+    (let [evicted (atom nil)
+          store (sfere/store {:type :atom
+                              :on-evict (fn [key conn cause]
+                                          (reset! evicted {:key key :conn conn :cause cause}))})
           sse (mock-sse "conn-1")
-          purged (atom nil)
-          reg (sfere/registry store {:id-fn (constantly :test-scope)
-                                     :on-purge (fn [ctx key] (reset! purged {:ctx ctx :key key}))})
+          reg (sfere/registry store {:id-fn (constantly :test-scope)})
           interceptor (first (::s/interceptors reg))]
       ;; Store a connection
       (sfere/store! store [:test-scope [:room "lobby"]] sse)
@@ -253,8 +254,10 @@
                  :dispatch-data {::twk/response {::sfere/key [:room "lobby"]}}}]
         (before-fn ctx))
 
-      (is (some? @purged))
-      (is (= [:test-scope [:room "lobby"]] (:key @purged))))))
+      (is (some? @evicted))
+      (is (= [:test-scope [:room "lobby"]] (:key @evicted)))
+      (is (= sse (:conn @evicted)))
+      (is (= :explicit (:cause @evicted))))))
 
 ;; =============================================================================
 ;; Integration Tests
